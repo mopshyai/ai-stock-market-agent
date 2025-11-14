@@ -1,0 +1,52 @@
+
+tickers:
+  - TSLA
+  - AAPL
+  - NVDA
+  - MSFT
+  - AMZN
+  - META
+  - AMD
+  - JPM
+  - XOM
+  - KO
+  - PEP
+
+data:
+  period: "5d"      # Shortened for intraday analysis
+  interval: "15m"   # Intraday candles: 15m, 30m, 1h, 4h available
+
+indicators:
+  bb_window: 20
+  bb_dev: 2.0
+  adx_window: 14
+  atr_window: 14
+  rsi_window: 14
+
+signals:
+  consolidation:
+    bb_width_mean_max: 0.06
+    atr_pct_mean_max: 0.025
+    adx_mean_max: 20
+    lookback: 20
+  buy_the_dip:
+    rsi_max: 35
+    close_below_lower_bb: true
+  breakout:
+    lookback: 20
+    adx_min: 18
+  volume_spike:
+    volume_multiplier: 1.5
+
+output:
+  charts_dir: "./charts"
+  results_csv: "./scan_results.csv"
+
+alerts:
+  slack_webhook_env: "SLACK_WEBHOOK_URL"
+  telegram:
+    enabled: true
+    bot_token_env: "TELEGRAM_BOT_TOKEN"
+    chat_id_env: "TELEGRAM_CHAT_ID"
+    send_charts: true
+    only_signal_stocks: true

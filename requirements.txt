@@ -1,0 +1,13 @@
+pandas
+numpy
+yfinance
+ta
+mplfinance
+requests
+pyyaml
+python-dotenv
+schedule
+pytz
+streamlit
+streamlit-autorefresh
+streamlit-lightweight-charts
