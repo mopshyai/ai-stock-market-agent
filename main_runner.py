@@ -71,14 +71,31 @@ def run_trade_monitor():
         traceback.print_exc()
 
 
+def run_interactive_bot():
+    """Run the interactive Telegram bot"""
+    try:
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting Interactive Telegram Bot...")
+
+        from interactive_telegram_bot import TradingAssistantBot
+
+        bot = TradingAssistantBot()
+        bot.run()  # This blocks
+
+    except Exception as e:
+        print(f"❌ Error in interactive bot: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def main():
-    """Main entry point - runs both services in parallel"""
+    """Main entry point - runs all services in parallel"""
     print("\n" + "="*60)
     print("AI STOCK AGENT - CLOUD DEPLOYMENT")
     print("="*60)
     print("\nStarting automated systems:")
     print("  1. Tweet Scheduler (6 tweets/day)")
     print("  2. Trade Monitor (live trade alerts)")
+    print("  3. Interactive Telegram Bot (chat with AI)")
     print("\n" + "="*60 + "\n")
 
     # Check environment variables
@@ -97,13 +114,16 @@ def main():
     # Create threads for parallel execution
     tweet_thread = threading.Thread(target=run_tweet_scheduler, daemon=True, name="TweetScheduler")
     trade_thread = threading.Thread(target=run_trade_monitor, daemon=True, name="TradeMonitor")
+    bot_thread = threading.Thread(target=run_interactive_bot, daemon=True, name="InteractiveBot")
 
-    # Start both threads
+    # Start all threads (staggered to avoid startup conflicts)
     tweet_thread.start()
-    time.sleep(2)  # Stagger start
+    time.sleep(2)
     trade_thread.start()
+    time.sleep(2)
+    bot_thread.start()
 
-    print("\n✅ Both systems running")
+    print("\n✅ All systems running")
     print("Press Ctrl+C to stop (but on Railway, this runs forever)\n")
 
     # Keep main thread alive
@@ -121,6 +141,11 @@ def main():
                 print("⚠️  Trade monitor thread died, restarting...")
                 trade_thread = threading.Thread(target=run_trade_monitor, daemon=True)
                 trade_thread.start()
+
+            if not bot_thread.is_alive():
+                print("⚠️  Interactive bot thread died, restarting...")
+                bot_thread = threading.Thread(target=run_interactive_bot, daemon=True)
+                bot_thread.start()
 
     except KeyboardInterrupt:
         print("\n🛑 Shutting down...")
