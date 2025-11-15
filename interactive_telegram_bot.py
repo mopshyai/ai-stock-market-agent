@@ -84,7 +84,7 @@ class TradingAssistantBot:
 
         if self.gemini_key and GEMINI_AVAILABLE:
             genai.configure(api_key=self.gemini_key)
-            self.gemini_model = genai.GenerativeModel('gemini-pro')
+            self.gemini_model = genai.GenerativeModel('gemini-1.5-flash')
             self.ai_provider = "gemini"
             self.ai_enabled = True
             logger.info("✅ Gemini AI integration enabled")
