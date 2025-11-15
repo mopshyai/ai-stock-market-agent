@@ -8,7 +8,7 @@ An intelligent stock scanner that detects high-probability patterns (consolidati
 
 ## 🚀 Try It Live (No Installation)
 
-### [**→ Open Web App**](https://ai-stock-agent-yourname.streamlit.app) 🌐
+### [**→ Open Web App**](https://ai-stock-market-agent-mopshyai.streamlit.app) 🌐
 
 **What you'll see:**
 - Real-time signal dashboard with scores
@@ -74,8 +74,8 @@ Want to run it locally or customize it?
 
 ```bash
 # Clone the repo
-git clone https://github.com/YOUR-USERNAME/ai-stock-agent.git
-cd ai-stock-agent
+git clone https://github.com/mopshyai/ai-stock-market-agent.git
+cd ai-stock-market-agent
 
 # Run automated setup
 ./setup.sh
@@ -336,8 +336,8 @@ RSI: 52.3 | ADX: 18.5 | BB Width: 3.21% | ATR: 1.85%
 
 ```bash
 # Fork the repo
-git clone https://github.com/YOUR-USERNAME/ai-stock-agent.git
-cd ai-stock-agent
+git clone https://github.com/mopshyai/ai-stock-market-agent.git
+cd ai-stock-market-agent
 
 # Create feature branch
 git checkout -b feature/your-feature
@@ -382,9 +382,8 @@ If you find this useful, give it a star on GitHub! ⭐
 
 ## 📧 Contact
 
-- **GitHub Issues:** [Report bugs / Request features](https://github.com/YOUR-USERNAME/ai-stock-agent/issues)
-- **Discussions:** [Ask questions / Share ideas](https://github.com/YOUR-USERNAME/ai-stock-agent/discussions)
-- **Email:** your-email@example.com (for business inquiries)
+- **GitHub Issues:** [Report bugs / Request features](https://github.com/mopshyai/ai-stock-market-agent/issues)
+- **Discussions:** [Ask questions / Share ideas](https://github.com/mopshyai/ai-stock-market-agent/discussions)
 
 ---
 
@@ -404,7 +403,8 @@ If you find this useful, give it a star on GitHub! ⭐
 
 ## Quick Links
 
-- **[Try Live App](https://ai-stock-agent-yourname.streamlit.app)** 🌐
+- **[Try Live App](https://ai-stock-market-agent-mopshyai.streamlit.app)** 🌐
+- **[GitHub Repository](https://github.com/mopshyai/ai-stock-market-agent)** ⭐
 - **[Deploy Your Own](docs/deployment/DEPLOY_SAAS.md)** 🚀
 - **[Product Specification](docs/marketing/PRODUCT_SPECIFICATION.md)** 📋
 - **[Launch Guide](docs/marketing/PRODUCT_HUNT_COMPLETE_GUIDE.md)** 📣
