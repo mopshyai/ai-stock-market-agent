@@ -1,0 +1,51 @@
+🚀 DEPLOY TO RAILWAY NOW - STEP BY STEP
+========================================
+
+Step 1: Open Railway Dashboard
+-------------------------------
+Go to: https://railway.app/dashboard
+
+Step 2: Find Your Project
+--------------------------
+Look for: ai-stock-market-agent (or your telegram bot project)
+
+Step 3: Add Environment Variables
+----------------------------------
+Click project → "Variables" tab → "+ New Variable"
+
+ADD THESE THREE VARIABLES:
+
+Variable 1:
+  Name:  TELEGRAM_BOT_TOKEN
+  Value: 7909396650:AAHRxUnSIZxWdYSCaEcZcUfQVEzZ3r8qbj0
+
+Variable 2:
+  Name:  GEMINI_API_KEY
+  Value: AIzaSyAqoJASCUYm0L2yW1u0qYd54Ps-Nr_MVZ0
+
+Variable 3:
+  Name:  GEMINI_MODEL_NAME
+  Value: gemini-pro
+
+Step 4: Wait for Auto-Deploy
+-----------------------------
+Railway will automatically redeploy after adding variables (1-2 min)
+
+Step 5: Check Logs
+-------------------
+Go to "Logs" tab - look for:
+  ✅ Gemini AI integration enabled (model: gemini-pro)
+  ✅ Market Intelligence enabled
+  ✅ Bot started!
+
+Step 6: Test on Telegram
+-------------------------
+Message your bot:
+  /start
+  what is SIP
+  news
+  AAPL price
+
+SUCCESS! 🎉
+-----------
+If all tests pass, you're done!

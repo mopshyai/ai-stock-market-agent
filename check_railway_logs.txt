@@ -1,0 +1,21 @@
+====================================================
+TO CHECK RAILWAY LOGS:
+====================================================
+
+1. Go to Railway Dashboard
+2. Click on your project (ai-stock-market-agent)
+3. Click "Logs" tab
+4. Look for recent entries with your query
+
+LOOK FOR THESE LOG LINES:
+--------------------------
+"User question: [your query]"
+"Market query detected: [type]"
+"AI error: ..."
+"Formatting response - Query type: ..."
+
+COPY AND PASTE the last 20-30 lines of logs here
+
+This will show us exactly what's failing.
+
+====================================================

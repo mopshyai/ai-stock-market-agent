@@ -28,6 +28,9 @@ An intelligent stock scanner that detects high-probability patterns (consolidati
 - **Buy-the-Dip** - Oversold conditions with support
 - **Breakout** - Price breaking resistance with volume
 - **Volume Spike** - Unusual trading activity
+- **EMA Stack** - 20>50>200 alignment with strong separation
+- **MACD Bullish Cross** - Histogram confirmation on fresh crossover
+- **VWAP Reclaim** - Price reclaiming VWAP after consolidation
 
 ### 📊 Technical Indicators
 - Bollinger Bands + BB Width
@@ -35,12 +38,15 @@ An intelligent stock scanner that detects high-probability patterns (consolidati
 - ADX (trend strength)
 - RSI (momentum)
 - EMAs (20, 50, 200)
+- MACD (+ signal + histogram)
+- VWAP overlay
 
 ### 📱 Automated Alerts
 - **Telegram Bot** - Signals delivered to your phone
 - **Slack Webhook** - Team notifications
 - Daily automation with scheduling
 - Optional chart images
+- Auto-skips Telegram sending until `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` are configured (no more warning spam)
 
 ### 📈 Interactive Dashboard
 - Color-coded signal badges
@@ -121,6 +127,10 @@ tickers:
   - TSLA
   - NVDA
   # Add your stocks here
+
+data:
+  provider: "yfinance"        # or "polygon"
+  polygon_api_key_env: "POLYGON_API_KEY"
 
 signals:
   consolidation:

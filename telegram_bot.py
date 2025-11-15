@@ -1,7 +1,7 @@
 
 import os
 import requests
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 # Import Twitter bot
 try:
@@ -76,6 +76,23 @@ class TelegramBot:
             return False
 
 
+def get_telegram_credentials(cfg: dict) -> Tuple[Optional[str], Optional[str]]:
+    telegram_cfg = cfg.get("alerts", {}).get("telegram", {})
+    token_env = telegram_cfg.get("bot_token_env", "TELEGRAM_BOT_TOKEN")
+    chat_env = telegram_cfg.get("chat_id_env", "TELEGRAM_CHAT_ID")
+    token = os.getenv(token_env) or telegram_cfg.get("bot_token")
+    chat_id = os.getenv(chat_env) or telegram_cfg.get("chat_id")
+    return token, chat_id
+
+
+def is_telegram_configured(cfg: dict) -> bool:
+    telegram_cfg = cfg.get("alerts", {}).get("telegram", {})
+    if not telegram_cfg.get("enabled", False):
+        return False
+    token, chat_id = get_telegram_credentials(cfg)
+    return bool(token and chat_id)
+
+
 def format_scan_results(results: List[Dict], send_charts: bool = True) -> str:
     """
     Format scan results into a Telegram-friendly message
@@ -136,6 +153,12 @@ def format_scan_results(results: List[Dict], send_charts: bool = True) -> str:
             signals.append("🚀 BREAKOUT")
         if vol:
             signals.append("📈 VOL SPIKE")
+        if r.get('EMABullish'):
+            signals.append("📐 EMA STACK")
+        if r.get('MACDBullish'):
+            signals.append("🎯 MACD BULL")
+        if r.get('VWAPReclaim'):
+            signals.append("💧 VWAP RECLAIM")
 
         msg += "   " + " | ".join(signals) + "\n"
 
@@ -198,8 +221,7 @@ def send_telegram_alerts(results: List[Dict], cfg: dict, charts_dir: str = "./ch
         return False
 
     # Get credentials from environment
-    bot_token = os.getenv(telegram_cfg.get("bot_token_env", "TELEGRAM_BOT_TOKEN"))
-    chat_id = os.getenv(telegram_cfg.get("chat_id_env", "TELEGRAM_CHAT_ID"))
+    bot_token, chat_id = get_telegram_credentials(cfg)
 
     if not bot_token or not chat_id:
         print("[TELEGRAM] Bot token or chat ID not configured")
@@ -234,6 +256,12 @@ def send_telegram_alerts(results: List[Dict], cfg: dict, charts_dir: str = "./ch
                     caption += " 🟢 CONS"
                 if r.get('BuyDip'):
                     caption += " 🔻 DIP"
+                if r.get('EMABullish'):
+                    caption += " 📐 EMA"
+                if r.get('MACDBullish'):
+                    caption += " 🎯 MACD"
+                if r.get('VWAPReclaim'):
+                    caption += " 💧 VWAP"
 
                 bot.send_photo(chart_path, caption)
                 print(f"[TELEGRAM] Sent chart for {ticker}")

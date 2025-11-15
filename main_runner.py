@@ -105,7 +105,7 @@ def main():
 
     # Initialize database (supports both SQLite and Postgres)
     try:
-        from database_postgres import init_database
+        from database import init_database
         init_database()
     except Exception as e:
         print(f"⚠️  Database init warning: {e}")

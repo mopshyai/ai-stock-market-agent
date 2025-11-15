@@ -27,7 +27,11 @@
       "Bash(source setup_twitter.sh)",
       "Bash(source:*)",
       "Bash(pip3 freeze:*)",
-      "Bash(requirements.txt)"
+      "Bash(requirements.txt)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(open https://railway.app/dashboard)",
+      "Bash(echo:*)"
     ],
     "deny": [],
     "ask": []

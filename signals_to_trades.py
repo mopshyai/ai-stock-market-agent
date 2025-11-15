@@ -2,7 +2,7 @@
 import yaml
 import sqlite3
 from typing import List, Dict
-from database_postgres import DB_PATH
+from database import DB_PATH
 from trade_engine import signal_to_trade
 from telegram_bot import notify_trade_lifecycle
 

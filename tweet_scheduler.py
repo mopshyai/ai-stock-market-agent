@@ -8,7 +8,7 @@ import pytz
 
 from twitter_bot import TwitterBot
 from content_engine import TweetContentGenerator
-from database_postgres import get_trade_summary
+from database import get_trade_summary
 
 """
 Tweet Scheduler - Automated posting at specific times (EST)

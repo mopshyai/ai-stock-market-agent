@@ -15,6 +15,8 @@ tickers:
 data:
   period: "5d"      # Shortened for intraday analysis
   interval: "15m"   # Intraday candles: 15m, 30m, 1h, 4h available
+  provider: "yfinance"        # Options: yfinance (default) or polygon
+  polygon_api_key_env: "POLYGON_API_KEY"  # Used when provider=polygon
 
 indicators:
   bb_window: 20
@@ -37,6 +39,13 @@ signals:
     adx_min: 18
   volume_spike:
     volume_multiplier: 1.5
+  ema_bullish:
+    min_separation_pct: 0.5     # Minimum EMA spacing (%)
+  macd_bullish:
+    histogram_min: 0.0          # Minimum MACD histogram value
+  vwap_reclaim:
+    lookback: 20
+    min_close_above_pct: 0.2     # Close must be 0.2% above VWAP
 
 output:
   charts_dir: "./charts"
@@ -48,6 +57,9 @@ alerts:
     enabled: true
     bot_token_env: "TELEGRAM_BOT_TOKEN"
     chat_id_env: "TELEGRAM_CHAT_ID"
+    # Optional: set these if you prefer storing creds in config (not recommended for production)
+    # bot_token: ""
+    # chat_id: ""
     send_charts: true
     only_signal_stocks: true
 

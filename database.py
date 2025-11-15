@@ -11,6 +11,15 @@ Stores scan results, tracks historical performance, and calculates signal win ra
 """
 
 DB_PATH = "stock_agent.db"
+SIGNAL_COLUMNS = [
+    'Consolidating',
+    'BuyDip',
+    'Breakout',
+    'VolSpike',
+    'EMABullish',
+    'MACDBullish',
+    'VWAPReclaim',
+]
 
 
 def ensure_column(cursor, table: str, column: str, definition: str):
@@ -50,6 +59,9 @@ def init_database():
             buy_dip BOOLEAN,
             breakout BOOLEAN,
             vol_spike BOOLEAN,
+            ema_bullish BOOLEAN,
+            macd_bullish BOOLEAN,
+            vwap_reclaim BOOLEAN,
             trend TEXT,
             price_at_signal REAL NOT NULL,
             rsi REAL,
@@ -81,6 +93,9 @@ def init_database():
     ensure_column(cursor, "signals", "action_reason", "TEXT")
     ensure_column(cursor, "signals", "fundamental_outlook", "TEXT")
     ensure_column(cursor, "signals", "fundamental_reasons", "TEXT")
+    ensure_column(cursor, "signals", "ema_bullish", "BOOLEAN")
+    ensure_column(cursor, "signals", "macd_bullish", "BOOLEAN")
+    ensure_column(cursor, "signals", "vwap_reclaim", "BOOLEAN")
 
     # Price tracking - stores price movements after signals
     cursor.execute("""
@@ -149,7 +164,7 @@ def store_scan_results(results: List[Dict]) -> int:
     # Count signals
     signals_count = sum(
         1 for r in results
-        if r.get('Consolidating') or r.get('BuyDip') or r.get('Breakout') or r.get('VolSpike')
+        if any(r.get(col) for col in SIGNAL_COLUMNS)
     )
 
     # Insert scan record
@@ -166,12 +181,12 @@ def store_scan_results(results: List[Dict]) -> int:
         cursor.execute("""
             INSERT INTO signals (
                 scan_id, ticker, signal_date, score, technical_score,
-                consolidating, buy_dip, breakout, vol_spike, trend,
+                consolidating, buy_dip, breakout, vol_spike, ema_bullish, macd_bullish, vwap_reclaim, trend,
                 price_at_signal, rsi, adx, bb_width_pct, atr_pct,
                 fundamental_score, market_cap, pe_ratio, revenue_growth_pct,
                 profit_margin_pct, action, action_reason, fundamental_outlook,
                 fundamental_reasons
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             scan_id,
             result.get('Ticker'),
@@ -182,6 +197,9 @@ def store_scan_results(results: List[Dict]) -> int:
             result.get('BuyDip', False),
             result.get('Breakout', False),
             result.get('VolSpike', False),
+            result.get('EMABullish', False),
+            result.get('MACDBullish', False),
+            result.get('VWAPReclaim', False),
             result.get('Trend', 'CHOPPY'),
             result.get('Close', 0.0),
             result.get('RSI'),

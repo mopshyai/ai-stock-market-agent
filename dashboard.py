@@ -9,7 +9,7 @@ from pathlib import Path
 import time
 import yaml
 from streamlit_autorefresh import st_autorefresh
-from database_postgres import (
+from database import (
     get_recent_scans,
     get_top_signals,
     get_signal_stats,

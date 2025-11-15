@@ -10,7 +10,7 @@ from ta.volume import VolumeWeightedAveragePrice
 import mplfinance as mpf
 from utils import post_to_slack
 from telegram_bot import send_telegram_alerts, is_telegram_configured
-from database_postgres import init_database, store_scan_results
+from database import init_database, store_scan_results
 from market_data import fetch_price_history
 from fundamentals import fetch_fundamentals, recommend_trade_action
 from signals_engine import SIGNAL_DEFINITIONS, evaluate_signals
