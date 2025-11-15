@@ -4,60 +4,34 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
+dist/
+build/
 *.egg
 
-# Virtual Environment
-.venv/
+# Virtual environments
 venv/
-ENV/
 env/
+.venv
 
-# IDEs
+# Database
+*.db
+*.db-journal
+
+# Charts
+charts/*.png
+
+# Credentials (Railway uses env variables)
+setup_telegram.sh
+setup_twitter.sh
+
+# IDE
 .vscode/
 .idea/
 *.swp
-*.swo
-*~
 
 # OS
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-Thumbs.db
 
-# Project-specific
-stock_agent.db
-*.csv
-charts/*.png
+# Logs
 *.log
-
-# Environment variables (if you add them later)
-.env
-.env.local
-
-# Streamlit
-.streamlit/secrets.toml
-# Note: config.toml is committed for consistent theming
-
-# Jupyter Notebooks
-.ipynb_checkpoints/
-*.ipynb
-
-# Claude Code
-.claude/

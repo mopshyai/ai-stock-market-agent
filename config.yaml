@@ -50,3 +50,49 @@ alerts:
     chat_id_env: "TELEGRAM_CHAT_ID"
     send_charts: true
     only_signal_stocks: true
+
+  twitter:
+    enabled: true
+    # What to post
+    post_new_trades: true
+    post_entries: true
+    post_exits: true
+    post_daily_summary: true
+    post_weekly_summary: true
+    # Auto-engagement (community building)
+    auto_engage:
+      enabled: false  # Set true to auto-like/reply to trading tweets
+      query: "stocks OR trading OR $SPY OR daytrading"
+      reply_template: "Solid insight, @{username}! My AI system trades fully systematic. 📊 #algotrading"
+      max_tweets: 3
+
+# Risk Management Settings
+risk_management:
+  # Minimum signal score to create trade (1-7)
+  min_signal_score: 3
+
+  # Risk per trade (in dollars/currency)
+  risk_per_trade_dollars: 100
+
+  # Stop loss calculation
+  use_fixed_stop_pct: false
+  fixed_stop_pct: 2.0              # If true, use this % for stop
+  stop_loss_atr_multiplier: 1.5    # If false, use ATR * this multiplier
+
+  # Daily risk limit
+  max_daily_loss_r: 3.0            # Stop trading if -3R loss in a day
+
+  # Max concurrent trades
+  max_open_trades: 5
+
+  # Max trades per day
+  max_trades_per_day: 10
+
+# Trade Monitor Settings
+trade_monitor:
+  # How often to check trades (in minutes)
+  check_interval_minutes: 5
+
+  # Send daily summary
+  send_daily_summary: true
+  daily_summary_hour: 16           # 4 PM (24-hour format)

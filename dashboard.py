@@ -168,6 +168,27 @@ def display_signal_badges(row):
     return ' | '.join(badges) if badges else '—'
 
 
+def format_market_cap(value):
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "—"
+    trillions = 1_000_000_000_000
+    billions = 1_000_000_000
+    millions = 1_000_000
+    if value >= trillions:
+        return f"${value / trillions:.2f}T"
+    if value >= billions:
+        return f"${value / billions:.2f}B"
+    if value >= millions:
+        return f"${value / millions:.2f}M"
+    return f"${value:,.0f}"
+
+
+def format_optional_number(value, decimals=1, suffix=""):
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "—"
+    return f"{value:.{decimals}f}{suffix}"
+
+
 # Main UI
 def main():
     # Header
@@ -296,7 +317,7 @@ def main():
                     continue
 
                 with st.container():
-                    col_a, col_b, col_c = st.columns([2, 3, 2])
+                    col_a, col_b, col_c = st.columns([2, 3, 3])
 
                     with col_a:
                         st.markdown(f"### {row['Ticker']}")
@@ -311,17 +332,42 @@ def main():
 
                         st.caption(f"RSI: {row['RSI']:.1f} | ADX: {row['ADX']:.1f} | BB Width: {row['BBWidth_pct']:.2f}% | ATR: {row['ATR%']:.2f}%")
 
+                        action = row.get('Action', 'WATCH')
+                        st.markdown(f"**Action:** {action}")
+                        st.caption(row.get('ActionReason', ''))
+
+                        if 'FundamentalScore' in row:
+                            st.caption(
+                                f"TA Score: {row.get('TechnicalScore', row['Score'])} | "
+                                f"FA Score: {row.get('FundamentalScore', 0)} ({row.get('FundamentalOutlook', '')})"
+                            )
+
+                        st.caption(
+                            f"MC: {format_market_cap(row.get('MarketCap'))} | "
+                            f"P/E: {format_optional_number(row.get('PERatio'))} | "
+                            f"Rev: {format_optional_number(row.get('RevenueGrowthPct'), 1, '%')} | "
+                            f"Margin: {format_optional_number(row.get('ProfitMarginPct'), 1, '%')}"
+                        )
+
+                        if row.get('FundamentalReasons'):
+                            st.caption(f"Notes: {row.get('FundamentalReasons')}")
+
                     with col_c:
-                        # Technical indicators mini table
-                        indicators = pd.DataFrame({
-                            'Indicator': ['RSI', 'ADX', 'BB Width', 'ATR%'],
-                            'Value': [
-                                f"{row['RSI']:.1f}",
-                                f"{row['ADX']:.1f}",
-                                f"{row['BBWidth_pct']:.2f}%",
-                                f"{row['ATR%']:.2f}%"
-                            ]
-                        })
+                        # Combined metrics mini table
+                        metrics = [
+                            ('RSI', f"{row['RSI']:.1f}"),
+                            ('ADX', f"{row['ADX']:.1f}"),
+                            ('BB Width', f"{row['BBWidth_pct']:.2f}%"),
+                            ('ATR%', f"{row['ATR%']:.2f}%"),
+                            ('Market Cap', format_market_cap(row.get('MarketCap'))),
+                            ('P/E', format_optional_number(row.get('PERatio'))),
+                            ('Rev Growth', format_optional_number(row.get('RevenueGrowthPct'), 1, '%')),
+                            ('Profit Margin', format_optional_number(row.get('ProfitMarginPct'), 1, '%')),
+                            ('FA Score', f"{row.get('FundamentalScore', '—')}"),
+                            ('FA Outlook', row.get('FundamentalOutlook', '')),
+                        ]
+
+                        indicators = pd.DataFrame(metrics, columns=['Metric', 'Value'])
                         st.dataframe(indicators, hide_index=True, use_container_width=True)
 
                     st.markdown("---")

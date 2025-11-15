@@ -3,6 +3,36 @@ import os
 import requests
 from typing import List, Dict, Optional
 
+# Import Twitter bot
+try:
+    from twitter_bot import (
+        TwitterBot,
+        format_new_trade_tweet,
+        format_entry_tweet,
+        format_exit_tweet,
+        format_daily_summary_tweet,
+        format_weekly_summary_tweet,
+    )
+    TWITTER_AVAILABLE = True
+except ImportError:
+    TWITTER_AVAILABLE = False
+    print("[INFO] Twitter bot not available (tweepy not installed)")
+
+
+def _format_market_cap(value: Optional[float]) -> str:
+    if value is None:
+        return "—"
+    trillions = 1_000_000_000_000
+    billions = 1_000_000_000
+    millions = 1_000_000
+    if value >= trillions:
+        return f"${value / trillions:.2f}T"
+    if value >= billions:
+        return f"${value / billions:.2f}B"
+    if value >= millions:
+        return f"${value / millions:.2f}M"
+    return f"${value:,.0f}"
+
 class TelegramBot:
     """
     Telegram Bot for sending AI Stock Agent alerts
@@ -109,6 +139,13 @@ def format_scan_results(results: List[Dict], send_charts: bool = True) -> str:
 
         msg += "   " + " | ".join(signals) + "\n"
 
+        action = r.get('Action', 'WATCH')
+        action_reason = r.get('ActionReason', '')
+        msg += f"   • Action: *{action}*"
+        if action_reason:
+            msg += f" — {action_reason}"
+        msg += "\n"
+
         # Trend
         if trend == "UP":
             msg += "   📊 Trend: ⬆️ UPTREND\n"
@@ -120,6 +157,26 @@ def format_scan_results(results: List[Dict], send_charts: bool = True) -> str:
         # Key metrics
         msg += f"   • RSI: {r.get('RSI', 0):.1f} | ADX: {r.get('ADX', 0):.1f}\n"
         msg += f"   • BB Width: {r.get('BBWidth_pct', 0):.2f}% | ATR: {r.get('ATR%', 0):.2f}%\n"
+
+        fund_score = r.get('FundamentalScore')
+        outlook = r.get('FundamentalOutlook', '')
+        if fund_score is not None:
+            msg += f"   • Fundamentals: {fund_score} ({outlook})\n"
+
+        pe_ratio = r.get('PERatio')
+        rev_growth = r.get('RevenueGrowthPct')
+        margin = r.get('ProfitMarginPct')
+
+        pe_text = f"{pe_ratio:.1f}" if isinstance(pe_ratio, (int, float)) else "—"
+        rev_text = f"{rev_growth:.1f}%" if isinstance(rev_growth, (int, float)) else "—"
+        margin_text = f"{margin:.1f}%" if isinstance(margin, (int, float)) else "—"
+
+        msg += f"   • MC: {_format_market_cap(r.get('MarketCap'))} | P/E: {pe_text} | Rev: {rev_text} | Margin: {margin_text}\n"
+
+        reasons = r.get('FundamentalReasons')
+        if reasons:
+            msg += f"   • Notes: {reasons}\n"
+
         msg += "\n"
 
     if send_charts:
@@ -172,7 +229,7 @@ def send_telegram_alerts(results: List[Dict], cfg: dict, charts_dir: str = "./ch
             chart_path = f"{charts_dir}/{ticker}.png"
 
             if os.path.exists(chart_path):
-                caption = f"📊 *{ticker}* Chart"
+                caption = f"📊 *{ticker}* Chart\nAction: {r.get('Action', 'WATCH')}"
                 if r.get('Consolidating'):
                     caption += " 🟢 CONS"
                 if r.get('BuyDip'):
@@ -207,6 +264,201 @@ def test_telegram_connection():
     else:
         print("❌ Failed to send test message")
         return False
+
+
+def send_new_trade_alert(bot: TelegramBot, trade_data: Dict) -> bool:
+    """
+    Send alert for new pending trade setup
+    """
+    ticker = trade_data['ticker']
+    entry = trade_data['entry_price']
+    stop = trade_data['stop_loss']
+    tp1 = trade_data['tp1']
+    tp2 = trade_data['tp2']
+    notes = trade_data.get('notes', '')
+
+    msg = f"📋 *NEW TRADE SETUP*\n"
+    msg += "─" * 30 + "\n\n"
+    msg += f"*{ticker}* @ ${entry:.2f}\n\n"
+    msg += f"🎯 Entry: ${entry:.2f}\n"
+    msg += f"🛑 Stop: ${stop:.2f}\n"
+    msg += f"✅ TP1: ${tp1:.2f} (1R)\n"
+    msg += f"🎯 TP2: ${tp2:.2f} (2R)\n\n"
+    msg += f"📝 {notes}\n\n"
+    msg += "_Waiting for entry..._"
+
+    return bot.send_message(msg)
+
+
+def send_entry_alert(bot: TelegramBot, trade_data: Dict) -> bool:
+    """
+    Send alert when trade entry is filled
+    """
+    ticker = trade_data['ticker']
+    entry = trade_data.get('actual_entry', trade_data['entry_price'])
+    stop = trade_data['stop_loss']
+    tp1 = trade_data['tp1']
+    tp2 = trade_data['tp2']
+
+    msg = f"▶️  *TRADE ENTERED*\n"
+    msg += "─" * 30 + "\n\n"
+    msg += f"*{ticker}* @ ${entry:.2f}\n\n"
+    msg += f"🛑 Stop: ${stop:.2f}\n"
+    msg += f"✅ TP1: ${tp1:.2f}\n"
+    msg += f"🎯 TP2: ${tp2:.2f}\n\n"
+    msg += "_Monitoring for exits..._"
+
+    return bot.send_message(msg)
+
+
+def send_exit_alert(bot: TelegramBot, trade_result: Dict) -> bool:
+    """
+    Send alert when trade is closed
+    """
+    ticker = trade_result['ticker']
+    entry = trade_result['entry_price']
+    exit_price = trade_result['exit_price']
+    exit_reason = trade_result['exit_reason']
+    r_multiple = trade_result['r_multiple']
+    pnl = trade_result['pnl']
+
+    # Choose emoji based on result
+    if exit_reason == 'STOP':
+        emoji = "❌"
+        title = "STOP HIT"
+    elif exit_reason == 'TP1':
+        emoji = "✅"
+        title = "TP1 HIT"
+    elif exit_reason == 'TP2':
+        emoji = "🎯"
+        title = "TP2 HIT"
+    else:
+        emoji = "🔔"
+        title = "TRADE CLOSED"
+
+    msg = f"{emoji} *{title}*\n"
+    msg += "─" * 30 + "\n\n"
+    msg += f"*{ticker}*\n"
+    msg += f"Entry: ${entry:.2f}\n"
+    msg += f"Exit: ${exit_price:.2f}\n\n"
+
+    # R-multiple with color indication
+    if r_multiple > 0:
+        msg += f"✅ *+{r_multiple}R*"
+    else:
+        msg += f"❌ *{r_multiple}R*"
+
+    if pnl != 0:
+        pnl_sign = "+" if pnl > 0 else ""
+        msg += f" | {pnl_sign}${pnl:.2f}"
+
+    return bot.send_message(msg)
+
+
+def send_daily_trade_summary(bot: TelegramBot, summary: Dict) -> bool:
+    """
+    Send daily trade performance summary
+    """
+    msg = f"📊 *DAILY TRADE SUMMARY*\n"
+    msg += "─" * 30 + "\n\n"
+
+    msg += f"Trades Today: {summary['closed']}\n"
+
+    if summary['closed'] > 0:
+        msg += f"Wins: {summary['wins']} | Losses: {summary['closed'] - summary['wins']}\n"
+        msg += f"Win Rate: {summary['win_rate']}%\n"
+        msg += f"Avg R: {summary['avg_r']}R\n\n"
+
+        # P&L with emoji
+        pnl = summary['total_pnl']
+        if pnl > 0:
+            msg += f"✅ P&L: *+${pnl:.2f}*\n"
+        elif pnl < 0:
+            msg += f"❌ P&L: *${pnl:.2f}*\n"
+        else:
+            msg += f"➖ P&L: $0.00\n"
+    else:
+        msg += "\nNo trades closed today.\n"
+
+    msg += f"\n📂 Open: {summary['open']} | Pending: {summary['pending']}"
+
+    return bot.send_message(msg)
+
+
+def notify_trade_lifecycle(trade_event: str, data: Dict, cfg: dict) -> bool:
+    """
+    Main function to handle all trade notifications
+    Sends to Telegram + Twitter (if enabled)
+
+    trade_event: 'NEW', 'ENTRY', 'EXIT', 'DAILY_SUMMARY', 'WEEKLY_SUMMARY'
+    """
+    alerts_cfg = cfg.get("alerts", {})
+    telegram_sent = False
+    twitter_sent = False
+
+    # ----- TELEGRAM -----
+    telegram_cfg = alerts_cfg.get("telegram", {})
+
+    if telegram_cfg.get("enabled", False):
+        bot_token = os.getenv(telegram_cfg.get("bot_token_env", "TELEGRAM_BOT_TOKEN"))
+        chat_id = os.getenv(telegram_cfg.get("chat_id_env", "TELEGRAM_CHAT_ID"))
+
+        if bot_token and chat_id:
+            bot = TelegramBot(bot_token, chat_id)
+
+            if trade_event == 'NEW':
+                telegram_sent = send_new_trade_alert(bot, data)
+            elif trade_event == 'ENTRY':
+                telegram_sent = send_entry_alert(bot, data)
+            elif trade_event == 'EXIT':
+                telegram_sent = send_exit_alert(bot, data)
+            elif trade_event == 'DAILY_SUMMARY':
+                telegram_sent = send_daily_trade_summary(bot, data)
+
+    # ----- TWITTER/X -----
+    if TWITTER_AVAILABLE:
+        twitter_cfg = alerts_cfg.get("twitter", {})
+
+        if twitter_cfg.get("enabled", False):
+            tbot = TwitterBot.from_env()
+
+            if tbot:
+                text = None
+
+                # Check which events to post
+                if trade_event == "NEW" and twitter_cfg.get("post_new_trades", True):
+                    text = format_new_trade_tweet(data)
+
+                elif trade_event == "ENTRY" and twitter_cfg.get("post_entries", True):
+                    text = format_entry_tweet(data)
+
+                elif trade_event == "EXIT" and twitter_cfg.get("post_exits", True):
+                    text = format_exit_tweet(data)
+
+                elif trade_event == "DAILY_SUMMARY" and twitter_cfg.get("post_daily_summary", True):
+                    text = format_daily_summary_tweet(data)
+
+                elif trade_event == "WEEKLY_SUMMARY" and twitter_cfg.get("post_weekly_summary", True):
+                    text = format_weekly_summary_tweet(data)
+
+                # Post tweet
+                if text:
+                    twitter_sent = tbot.post(text)
+
+                # Optional auto-engage after daily summary
+                if (
+                    trade_event == "DAILY_SUMMARY"
+                    and twitter_cfg.get("auto_engage", {}).get("enabled", False)
+                ):
+                    ae = twitter_cfg["auto_engage"]
+                    tbot.search_and_engage(
+                        query=ae.get("query", "stocks"),
+                        like=True,
+                        reply_template=ae.get("reply_template"),
+                        max_tweets=ae.get("max_tweets", 3),
+                    )
+
+    return telegram_sent or twitter_sent
 
 
 if __name__ == "__main__":

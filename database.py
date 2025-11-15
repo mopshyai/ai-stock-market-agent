@@ -13,6 +13,14 @@ Stores scan results, tracks historical performance, and calculates signal win ra
 DB_PATH = "stock_agent.db"
 
 
+def ensure_column(cursor, table: str, column: str, definition: str):
+    """Ensure a column exists on a table."""
+    cursor.execute(f"PRAGMA table_info({table})")
+    columns = {row[1] for row in cursor.fetchall()}
+    if column not in columns:
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 def init_database():
     """Initialize database schema"""
     conn = sqlite3.connect(DB_PATH)
@@ -37,6 +45,7 @@ def init_database():
             ticker TEXT NOT NULL,
             signal_date DATE NOT NULL,
             score INTEGER NOT NULL,
+             technical_score INTEGER,
             consolidating BOOLEAN,
             buy_dip BOOLEAN,
             breakout BOOLEAN,
@@ -47,10 +56,31 @@ def init_database():
             adx REAL,
             bb_width_pct REAL,
             atr_pct REAL,
+            fundamental_score INTEGER,
+            market_cap REAL,
+            pe_ratio REAL,
+            revenue_growth_pct REAL,
+            profit_margin_pct REAL,
+            action TEXT,
+            action_reason TEXT,
+            fundamental_outlook TEXT,
+            fundamental_reasons TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (scan_id) REFERENCES scans(scan_id)
         )
     """)
+
+    # Backfill columns for existing databases
+    ensure_column(cursor, "signals", "technical_score", "INTEGER")
+    ensure_column(cursor, "signals", "fundamental_score", "INTEGER")
+    ensure_column(cursor, "signals", "market_cap", "REAL")
+    ensure_column(cursor, "signals", "pe_ratio", "REAL")
+    ensure_column(cursor, "signals", "revenue_growth_pct", "REAL")
+    ensure_column(cursor, "signals", "profit_margin_pct", "REAL")
+    ensure_column(cursor, "signals", "action", "TEXT")
+    ensure_column(cursor, "signals", "action_reason", "TEXT")
+    ensure_column(cursor, "signals", "fundamental_outlook", "TEXT")
+    ensure_column(cursor, "signals", "fundamental_reasons", "TEXT")
 
     # Price tracking - stores price movements after signals
     cursor.execute("""
@@ -67,10 +97,38 @@ def init_database():
         )
     """)
 
+    # Trades table - stores actual trade execution and lifecycle
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS trades (
+            trade_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            signal_id INTEGER,
+            ticker TEXT NOT NULL,
+            side TEXT DEFAULT 'BUY',
+            status TEXT NOT NULL,
+            entry_price REAL NOT NULL,
+            stop_loss REAL NOT NULL,
+            tp1 REAL NOT NULL,
+            tp2 REAL NOT NULL,
+            current_price REAL,
+            entry_time TIMESTAMP,
+            exit_time TIMESTAMP,
+            exit_reason TEXT,
+            risk_amount REAL,
+            r_multiple REAL,
+            pnl REAL,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (signal_id) REFERENCES signals(signal_id)
+        )
+    """)
+
     # Create indexes for faster queries
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_ticker ON signals(ticker)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_date ON signals(signal_date)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracking_signal ON price_tracking(signal_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_ticker ON trades(ticker)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status)")
 
     conn.commit()
     conn.close()
@@ -107,15 +165,19 @@ def store_scan_results(results: List[Dict]) -> int:
     for result in results:
         cursor.execute("""
             INSERT INTO signals (
-                scan_id, ticker, signal_date, score,
+                scan_id, ticker, signal_date, score, technical_score,
                 consolidating, buy_dip, breakout, vol_spike, trend,
-                price_at_signal, rsi, adx, bb_width_pct, atr_pct
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                price_at_signal, rsi, adx, bb_width_pct, atr_pct,
+                fundamental_score, market_cap, pe_ratio, revenue_growth_pct,
+                profit_margin_pct, action, action_reason, fundamental_outlook,
+                fundamental_reasons
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             scan_id,
             result.get('Ticker'),
             scan_date.date(),
             result.get('Score', 0),
+            result.get('TechnicalScore'),
             result.get('Consolidating', False),
             result.get('BuyDip', False),
             result.get('Breakout', False),
@@ -125,7 +187,16 @@ def store_scan_results(results: List[Dict]) -> int:
             result.get('RSI'),
             result.get('ADX'),
             result.get('BBWidth_pct'),
-            result.get('ATR%')
+            result.get('ATR%'),
+            result.get('FundamentalScore'),
+            result.get('MarketCap'),
+            result.get('PERatio'),
+            result.get('RevenueGrowthPct'),
+            result.get('ProfitMarginPct'),
+            result.get('Action'),
+            result.get('ActionReason'),
+            result.get('FundamentalOutlook'),
+            result.get('FundamentalReasons'),
         ))
 
     conn.commit()
@@ -377,6 +448,206 @@ def calculate_win_rates(signal_type: str = 'all', days: int = 30) -> Dict:
             stats[f'avg_return_{period}'] = 0
 
     return stats
+
+
+def create_trade(signal_id: int, ticker: str, entry_price: float,
+                 stop_loss: float, tp1: float, tp2: float,
+                 risk_amount: float = None, notes: str = None) -> int:
+    """
+    Create a new pending trade from a signal
+    Returns trade_id
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO trades (
+            signal_id, ticker, status, entry_price, stop_loss, tp1, tp2, risk_amount, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (signal_id, ticker, 'PENDING', entry_price, stop_loss, tp1, tp2, risk_amount, notes))
+
+    trade_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    print(f"✅ Created trade {trade_id}: {ticker} PENDING @ {entry_price}")
+    return trade_id
+
+
+def get_pending_trades() -> pd.DataFrame:
+    """Get all pending trades"""
+    conn = sqlite3.connect(DB_PATH)
+    query = """
+        SELECT
+            trade_id, ticker, entry_price, stop_loss, tp1, tp2,
+            risk_amount, created_at, notes
+        FROM trades
+        WHERE status = 'PENDING'
+        ORDER BY created_at DESC
+    """
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
+
+def get_open_trades() -> pd.DataFrame:
+    """Get all open trades"""
+    conn = sqlite3.connect(DB_PATH)
+    query = """
+        SELECT
+            trade_id, ticker, entry_price, stop_loss, tp1, tp2,
+            current_price, entry_time, risk_amount, notes
+        FROM trades
+        WHERE status = 'OPEN'
+        ORDER BY entry_time DESC
+    """
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
+
+def update_trade_status(trade_id: int, status: str, current_price: float = None) -> None:
+    """Update trade status and current price"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    update_fields = ["status = ?", "updated_at = CURRENT_TIMESTAMP"]
+    params = [status]
+
+    if current_price:
+        update_fields.append("current_price = ?")
+        params.append(current_price)
+
+    if status == 'OPEN':
+        update_fields.append("entry_time = CURRENT_TIMESTAMP")
+
+    params.append(trade_id)
+
+    query = f"UPDATE trades SET {', '.join(update_fields)} WHERE trade_id = ?"
+    cursor.execute(query, params)
+
+    conn.commit()
+    conn.close()
+
+
+def close_trade(trade_id: int, exit_price: float, exit_reason: str) -> Dict:
+    """
+    Close a trade and calculate P&L
+    Returns trade details
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Get trade details
+    cursor.execute("""
+        SELECT ticker, entry_price, stop_loss, tp1, tp2, risk_amount
+        FROM trades
+        WHERE trade_id = ?
+    """, (trade_id,))
+
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return None
+
+    ticker, entry_price, stop_loss, tp1, tp2, risk_amount = row
+
+    # Calculate R-multiple
+    risk_per_share = entry_price - stop_loss
+    profit_per_share = exit_price - entry_price
+
+    if risk_per_share > 0:
+        r_multiple = profit_per_share / risk_per_share
+    else:
+        r_multiple = 0
+
+    # Calculate P&L
+    if risk_amount and risk_per_share > 0:
+        shares = risk_amount / risk_per_share
+        pnl = shares * profit_per_share
+    else:
+        pnl = 0
+
+    # Update trade
+    cursor.execute("""
+        UPDATE trades
+        SET status = 'CLOSED',
+            current_price = ?,
+            exit_time = CURRENT_TIMESTAMP,
+            exit_reason = ?,
+            r_multiple = ?,
+            pnl = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE trade_id = ?
+    """, (exit_price, exit_reason, r_multiple, pnl, trade_id))
+
+    conn.commit()
+    conn.close()
+
+    result = {
+        'trade_id': trade_id,
+        'ticker': ticker,
+        'entry_price': entry_price,
+        'exit_price': exit_price,
+        'exit_reason': exit_reason,
+        'r_multiple': round(r_multiple, 2),
+        'pnl': round(pnl, 2) if pnl else 0
+    }
+
+    print(f"✅ Closed trade {trade_id}: {ticker} @ {exit_price} | {exit_reason} | {r_multiple:.2f}R")
+    return result
+
+
+def get_trade_summary(days: int = 30) -> Dict:
+    """Get trade performance summary"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cutoff_date = (datetime.now() - timedelta(days=days)).date()
+
+    # Total trades
+    cursor.execute("""
+        SELECT COUNT(*) FROM trades
+        WHERE DATE(created_at) >= ?
+    """, (cutoff_date,))
+    total = cursor.fetchone()[0]
+
+    # Closed trades stats
+    cursor.execute("""
+        SELECT
+            COUNT(*) as closed_count,
+            SUM(CASE WHEN r_multiple > 0 THEN 1 ELSE 0 END) as wins,
+            AVG(r_multiple) as avg_r,
+            SUM(pnl) as total_pnl
+        FROM trades
+        WHERE status = 'CLOSED' AND DATE(exit_time) >= ?
+    """, (cutoff_date,))
+
+    row = cursor.fetchone()
+    closed_count, wins, avg_r, total_pnl = row
+
+    # Open trades count
+    cursor.execute("SELECT COUNT(*) FROM trades WHERE status = 'OPEN'")
+    open_count = cursor.fetchone()[0]
+
+    # Pending trades count
+    cursor.execute("SELECT COUNT(*) FROM trades WHERE status = 'PENDING'")
+    pending_count = cursor.fetchone()[0]
+
+    conn.close()
+
+    win_rate = (wins / closed_count * 100) if closed_count else 0
+
+    return {
+        'total_trades': total,
+        'open': open_count,
+        'pending': pending_count,
+        'closed': closed_count or 0,
+        'wins': wins or 0,
+        'win_rate': round(win_rate, 1),
+        'avg_r': round(avg_r, 2) if avg_r else 0,
+        'total_pnl': round(total_pnl, 2) if total_pnl else 0
+    }
 
 
 if __name__ == "__main__":

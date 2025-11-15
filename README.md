@@ -54,6 +54,16 @@ An intelligent stock scanner that detects high-probability patterns (consolidati
 - SQLite database for history
 - Works with Excel, Google Sheets, Notion
 
+### 🎯 **NEW: Trading System** (Signal → Trade → Telegram Alerts)
+- **Auto-converts signals to trade plans** with entry, stop loss, and take profit levels
+- **Real-time trade monitoring** - Checks every 5 minutes for entries/exits
+- **Full lifecycle tracking** - PENDING → OPEN → CLOSED
+- **Telegram notifications** for every trade event
+- **Risk management** - Daily loss limits, position sizing, max trades
+- **R-multiple tracking** - Know your edge with +1R, +2R system
+
+**[→ See QUICKSTART.md](QUICKSTART.md)** for setup | **[→ See TRADING_SYSTEM.md](TRADING_SYSTEM.md)** for details
+
 ---
 
 ## 🎯 Who Is This For?
@@ -166,23 +176,40 @@ alerts:
 │   - Detects patterns                │
 │   - Generates charts                │
 ├─────────────────────────────────────┤
+│   🆕 Trading System                  │  ← Signal → Trade conversion
+│   - signals_to_trades.py            │  → Creates trade plans
+│   - trade_engine.py                 │  → Entry/exit logic
+│   - trade_monitor.py                │  → Real-time monitoring
+│   - Risk management + P&L tracking  │
+├─────────────────────────────────────┤
 │   database.py                       │  ← Persistent storage
 │   - SQLite (v1)                     │
-│   - Postgres (v2 upgrade)           │
+│   - Signals + Trades tables         │
 │   - Historical tracking             │
 │   - Performance analytics           │
 ├─────────────────────────────────────┤
-│   telegram_bot.py / scheduler.py    │  ← Optional automation
+│   telegram_bot.py / scheduler.py    │  ← Automation + Alerts
+│   - Signal alerts                   │
+│   - Trade lifecycle notifications   │  🆕
 └─────────────────────────────────────┘
 ```
 
-**Data Flow:**
+**Data Flow (Scanning):**
 1. Dashboard triggers scan
 2. Engine fetches market data (yfinance)
 3. Calculates indicators + detects patterns
 4. Saves to database
 5. Updates dashboard UI
-6. (Optional) Sends Telegram alert
+6. Sends Telegram scan summary
+
+**Data Flow (Trading - NEW):**
+1. signals_to_trades.py converts signals → trade plans
+2. Creates PENDING trades with entry/SL/TP levels
+3. trade_monitor.py runs continuously (every 5 min)
+4. Detects entries → PENDING → OPEN
+5. Monitors exits → STOP/TP1/TP2 → CLOSED
+6. Sends Telegram alert at each step
+7. Tracks R-multiples and P&L in database
 
 ---
 
@@ -271,6 +298,14 @@ RSI: 52.3 | ADX: 18.5 | BB Width: 3.21% | ATR: 1.85%
 - Daily automation
 - SaaS deployment ready
 
+### ✅ Completed (v1.5 - Trading System)
+- **Trade plan generation** from signals (entry/SL/TP)
+- **Real-time trade monitoring** (PENDING → OPEN → CLOSED)
+- **Telegram lifecycle notifications** for every trade event
+- **Risk management** (daily loss limits, position sizing)
+- **R-multiple tracking** and P&L calculations
+- **Background monitoring** with automated entry/exit detection
+
 ### 🚧 Coming Soon (v2.0)
 - [ ] Multi-user accounts (auth)
 - [ ] Custom tickers per user
@@ -279,6 +314,7 @@ RSI: 52.3 | ADX: 18.5 | BB Width: 3.21% | ATR: 1.85%
 - [ ] Multi-timeframe analysis (1D + 4H + 1H)
 - [ ] MACD / Supertrend indicators
 - [ ] Real-time WebSocket alerts
+- [ ] Broker API integration (Alpaca, IBKR)
 - [ ] Mobile app (React Native)
 
 ### 💰 Future (v3.0)

@@ -1,0 +1,12 @@
+Ticker,Score,Consolidating,BuyDip,Breakout,VolSpike,Trend,BBWidth_pct,ATR%,ADX,RSI,Close
+AAPL,3,True,False,False,True,UP,1.26,0.29,15.91,36.38,272.55
+MSFT,3,True,False,False,True,UP,0.83,0.27,15.41,59.41,510.37
+XOM,3,True,False,False,True,UP,0.84,0.24,12.77,58.4,119.29
+NVDA,2,True,False,False,True,CHOPPY,1.21,0.59,11.42,57.86,190.23
+META,2,True,False,False,True,DOWN,0.86,0.43,10.67,48.65,609.81
+AMD,2,True,False,False,True,CHOPPY,3.16,0.86,17.52,41.7,246.76
+KO,2,True,False,False,True,CHOPPY,0.74,0.22,14.78,58.61,71.16
+PEP,2,False,False,False,True,UP,1.63,0.28,36.19,54.2,145.86
+AMZN,1,False,False,False,True,DOWN,1.94,0.38,42.93,33.98,234.7
+JPM,1,False,False,False,True,DOWN,1.03,0.39,69.76,34.07,303.73
+TSLA,0,False,False,False,False,DOWN,1.84,0.83,15.24,44.67,404.33

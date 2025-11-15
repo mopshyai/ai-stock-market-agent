@@ -11,6 +11,7 @@ import mplfinance as mpf
 from utils import post_to_slack
 from telegram_bot import send_telegram_alerts
 from database import init_database, store_scan_results
+from fundamentals import fetch_fundamentals, recommend_trade_action
 
 pd.options.mode.chained_assignment = None
 
@@ -231,14 +232,22 @@ def main():
             vol_spike = volume_spike(df, cfg)
             trend = trend_direction(df)
 
-            # Calculate signal score
-            score = calculate_signal_score(cons, dip, brk, vol_spike, trend)
+            # Technical score
+            technical_score = calculate_signal_score(cons, dip, brk, vol_spike, trend)
+
+            # Fundamentals & combined view
+            fundamentals = fetch_fundamentals(t)
+            fund_score = fundamentals.fundamental_score
+            action_info = recommend_trade_action(technical_score, fund_score, trend)
+            combined_score = action_info["total_score"]
 
             last = df.iloc[-1]
 
             results.append({
                 "Ticker": t,
-                "Score": score,
+                "Score": combined_score,
+                "TechnicalScore": technical_score,
+                "FundamentalScore": fund_score,
                 "Consolidating": cons,
                 "BuyDip": dip,
                 "Breakout": brk,
@@ -248,7 +257,15 @@ def main():
                 "ATR%": round(last["atr_pct"]*100,2),
                 "ADX": round(last["adx"],2),
                 "RSI": round(last["rsi"],2),
-                "Close": round(last["Close"],2)
+                "Close": round(last["Close"],2),
+                "MarketCap": fundamentals.market_cap,
+                "PERatio": fundamentals.pe_ratio,
+                "RevenueGrowthPct": fundamentals.revenue_growth_pct,
+                "ProfitMarginPct": fundamentals.profit_margin_pct,
+                "FundamentalOutlook": fundamentals.outlook,
+                "FundamentalReasons": fundamentals.reasons,
+                "Action": action_info["action"],
+                "ActionReason": action_info["reason"],
             })
 
             save_chart(df, t, cfg["output"]["charts_dir"])

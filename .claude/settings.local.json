@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip3 install:*)",
+      "Bash(python3:*)",
+      "Bash(cat:*)",
+      "Bash(curl:*)",
+      "Bash(pkill:*)",
+      "Bash(pgrep:*)",
+      "Bash(sqlite3:*)",
+      "Bash(source .venv/bin/activate)",
+      "Bash(python scan_and_chart.py:*)",
+      "Bash(streamlit run:*)",
+      "Bash(STREAMLIT_SERVER_HEADLESS=true python3:*)",
+      "Bash(lsof:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git remote add:*)",
+      "Bash(git branch:*)",
+      "Bash(chmod:*)",
+      "Bash(tree:*)",
+      "Bash(git push:*)",
+      "Bash(https://api.github.com/user/repos )",
+      "Bash(open https://github.com/mopshyai/ai-stock-market-agent)",
+      "Bash(export:*)",
+      "Bash(source setup_twitter.sh)",
+      "Bash(source:*)",
+      "Bash(pip3 freeze:*)",
+      "Bash(requirements.txt)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
