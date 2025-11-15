@@ -32,7 +32,14 @@ except ImportError:
     print("❌ python-telegram-bot not installed. Run: pip install python-telegram-bot")
     sys.exit(1)
 
-# OpenAI for AI responses
+# AI providers for responses
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    print("⚠️  Gemini not available. Install with: pip install google-generativeai")
+
 try:
     import openai
     OPENAI_AVAILABLE = True
@@ -65,19 +72,29 @@ class TradingAssistantBot:
 
     def __init__(self):
         self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        self.gemini_key = os.getenv("GEMINI_API_KEY")
         self.openai_key = os.getenv("OPENAI_API_KEY")
 
         if not self.bot_token:
             raise ValueError("TELEGRAM_BOT_TOKEN not set in environment")
 
-        # Initialize OpenAI if available
-        if self.openai_key and OPENAI_AVAILABLE:
+        # Initialize AI provider (prioritize Gemini over OpenAI)
+        self.ai_provider = None
+        self.ai_enabled = False
+
+        if self.gemini_key and GEMINI_AVAILABLE:
+            genai.configure(api_key=self.gemini_key)
+            self.gemini_model = genai.GenerativeModel('gemini-pro')
+            self.ai_provider = "gemini"
+            self.ai_enabled = True
+            logger.info("✅ Gemini AI integration enabled")
+        elif self.openai_key and OPENAI_AVAILABLE:
             openai.api_key = self.openai_key
+            self.ai_provider = "openai"
             self.ai_enabled = True
             logger.info("✅ OpenAI integration enabled")
         else:
-            self.ai_enabled = False
-            logger.warning("⚠️  OpenAI not configured - using basic responses")
+            logger.warning("⚠️  No AI provider configured - using basic responses")
 
         # Initialize market data engine
         if MarketDataEngine:
@@ -395,7 +412,7 @@ Examples:
 
 
     async def get_ai_response(self, question: str) -> str:
-        """Get AI-powered response using OpenAI"""
+        """Get AI-powered response using Gemini or OpenAI"""
         try:
             # System prompt for AI
             system_prompt = """You are an AI Stock Trading Assistant.
@@ -415,22 +432,28 @@ Keep responses:
 
 Use Markdown formatting."""
 
-            # Call OpenAI API
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": question}
-                ],
-                max_tokens=500,
-                temperature=0.7
-            )
+            # Use Gemini if available
+            if self.ai_provider == "gemini":
+                # Combine system prompt with user question for Gemini
+                full_prompt = f"{system_prompt}\n\nUser question: {question}"
+                response = self.gemini_model.generate_content(full_prompt)
+                return response.text.strip()
 
-            answer = response.choices[0].message.content.strip()
-            return answer
+            # Otherwise use OpenAI
+            elif self.ai_provider == "openai":
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": question}
+                    ],
+                    max_tokens=500,
+                    temperature=0.7
+                )
+                return response.choices[0].message.content.strip()
 
         except Exception as e:
-            logger.error(f"OpenAI API error: {e}")
+            logger.error(f"AI API error ({self.ai_provider}): {e}")
             raise
 
 
