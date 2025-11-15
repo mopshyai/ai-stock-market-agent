@@ -103,11 +103,10 @@ def main():
         print("\n⚠️  Please configure environment variables and restart")
         return
 
-    # Initialize database
+    # Initialize database (supports both SQLite and Postgres)
     try:
-        from database import init_database
+        from database_postgres import init_database
         init_database()
-        print("✅ Database initialized")
     except Exception as e:
         print(f"⚠️  Database init warning: {e}")
 
