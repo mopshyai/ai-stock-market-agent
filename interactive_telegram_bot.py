@@ -42,13 +42,15 @@ except ImportError:
 
 # Import existing modules
 try:
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from database import get_db_connection
-    from content_engine import MarketDataEngine, TweetContentGenerator
-except ImportError:
-    print("⚠️  Could not import database/content_engine modules")
+    from content_engine import MarketDataEngine
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import modules: {e}")
     get_db_connection = None
     MarketDataEngine = None
-    TweetContentGenerator = None
 
 # Configure logging
 logging.basicConfig(
@@ -523,8 +525,12 @@ Or use commands:
     # RUN BOT
     # ============================================================
 
-    def run(self):
-        """Start the bot"""
+    def run(self, in_thread=False):
+        """Start the bot
+
+        Args:
+            in_thread: Set to True when running in a background thread
+        """
         logger.info("🤖 Starting Interactive Telegram Bot...")
 
         # Create application
@@ -542,7 +548,13 @@ Or use commands:
 
         # Start bot
         logger.info("✅ Bot started! Press Ctrl+C to stop")
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+        if in_thread:
+            # Running in thread - disable signal handlers
+            app.run_polling(allowed_updates=Update.ALL_TYPES, stop_signals=None)
+        else:
+            # Running in main thread - use signal handlers
+            app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 # ============================================================

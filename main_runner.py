@@ -79,7 +79,7 @@ def run_interactive_bot():
         from interactive_telegram_bot import TradingAssistantBot
 
         bot = TradingAssistantBot()
-        bot.run()  # This blocks
+        bot.run(in_thread=True)  # This blocks (in_thread=True to disable signal handlers)
 
     except Exception as e:
         print(f"❌ Error in interactive bot: {e}")
