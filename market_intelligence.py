@@ -10,14 +10,32 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import re
 
+# Import cache manager
+try:
+    from cache_manager import get_cached_stock_price, cache_stock_price, get_cached_news, cache_news
+    CACHE_AVAILABLE = True
+except ImportError:
+    CACHE_AVAILABLE = False
+    print("⚠️  Cache manager not available")
+
 class StockDataFetcher:
     """Fetch real-time stock data using yfinance"""
 
     @staticmethod
     def get_stock_price(symbol: str) -> Optional[Dict]:
-        """Get current price and key metrics for a stock"""
+        """Get current price and key metrics for a stock (with caching)"""
+        symbol = symbol.upper()
+
+        # Try cache first (5 minute TTL)
+        if CACHE_AVAILABLE:
+            cached = get_cached_stock_price(symbol)
+            if cached:
+                print(f"✅ Cache HIT: {symbol} price")
+                return cached
+
+        # Cache miss - fetch from yfinance
         try:
-            ticker = yf.Ticker(symbol.upper())
+            ticker = yf.Ticker(symbol)
 
             # Get current price
             hist = ticker.history(period='1d', interval='1m')
@@ -38,9 +56,9 @@ class StockDataFetcher:
             volume = hist['Volume'].iloc[-1] if 'Volume' in hist else 0
             avg_volume = info.get('averageVolume', 0)
 
-            return {
-                'symbol': symbol.upper(),
-                'name': info.get('shortName', symbol.upper()),
+            data = {
+                'symbol': symbol,
+                'name': info.get('shortName', symbol),
                 'price': round(current_price, 2),
                 'change': round(change, 2),
                 'change_pct': round(change_pct, 2),
@@ -53,6 +71,14 @@ class StockDataFetcher:
                 '52w_high': info.get('fiftyTwoWeekHigh'),
                 '52w_low': info.get('fiftyTwoWeekLow'),
             }
+
+            # Cache the result (5 minutes)
+            if CACHE_AVAILABLE:
+                cache_stock_price(symbol, data, ttl_seconds=300)
+                print(f"📝 Cached: {symbol} price (5 min)")
+
+            return data
+
         except Exception as e:
             print(f"Error fetching {symbol}: {e}")
             return None
@@ -120,9 +146,19 @@ class NewsFetcher:
 
     @staticmethod
     def get_stock_news(symbol: str, limit: int = 5) -> List[Dict]:
-        """Get latest news for a specific stock using yfinance"""
+        """Get latest news for a specific stock using yfinance (with caching)"""
+        symbol = symbol.upper()
+
+        # Try cache first (15 minute TTL for news)
+        if CACHE_AVAILABLE:
+            cached = get_cached_news(symbol)
+            if cached:
+                print(f"✅ Cache HIT: {symbol} news")
+                return cached[:limit]  # Return requested limit
+
+        # Cache miss - fetch from yfinance
         try:
-            ticker = yf.Ticker(symbol.upper())
+            ticker = yf.Ticker(symbol)
             news = ticker.news
 
             if not news:
@@ -170,6 +206,11 @@ class NewsFetcher:
                         'link': link,
                         'published': published
                     })
+
+            # Cache the result (15 minutes)
+            if CACHE_AVAILABLE and formatted_news:
+                cache_news(symbol, formatted_news, ttl_seconds=900)
+                print(f"📝 Cached: {symbol} news (15 min)")
 
             return formatted_news
 
