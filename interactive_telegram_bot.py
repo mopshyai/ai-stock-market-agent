@@ -434,8 +434,8 @@ Examples:
                 await update.message.reply_text(response, parse_mode='Markdown')
                 return
             except Exception as e:
-                logger.error(f"AI error: {e}")
-                # Fall through to basic responses
+                logger.error(f"AI error: {e}", exc_info=True)
+                # Fall through to format market data or basic responses
 
         # If market context available but AI failed, format market data manually
         if market_context:
@@ -544,18 +544,21 @@ Use Markdown formatting."""
         symbol = market_context.get('symbol')
         data = market_context.get('data')
 
+        # Debug logging
+        logger.info(f"Formatting response - Query type: {query_type}, Symbol: {symbol}, Data type: {type(data)}")
+
         if not data:
             return "❌ No market data available for this query."
 
         response = ""
 
         # Price query
-        if query_type == 'price' and isinstance(data, dict):
+        if query_type == 'price' and isinstance(data, dict) and 'price' in data:
             response = f"📊 *{symbol}* - {data.get('name', symbol)}\n\n"
             response += f"💰 Price: ${data['price']}\n"
-            change_emoji = "🟢" if data['change'] >= 0 else "🔴"
-            response += f"{change_emoji} Change: {data['change']:+.2f} ({data['change_pct']:+.2f}%)\n"
-            response += f"📈 Volume: {data['volume']:,}\n"
+            change_emoji = "🟢" if data.get('change', 0) >= 0 else "🔴"
+            response += f"{change_emoji} Change: {data.get('change', 0):+.2f} ({data.get('change_pct', 0):+.2f}%)\n"
+            response += f"📈 Volume: {data.get('volume', 0):,}\n"
             response += f"📉 Day Range: ${data.get('day_low', 'N/A')} - ${data.get('day_high', 'N/A')}\n"
             if data.get('market_cap'):
                 response += f"💎 Market Cap: ${data['market_cap']/1e9:.2f}B\n"
@@ -619,7 +622,16 @@ Use Markdown formatting."""
                     response += f"• {news['title']}\n"
 
         if not response:
-            response = "❌ Unable to format market data."
+            # Fallback with debug info
+            logger.warning(f"Could not format market data - Type: {query_type}, Data: {str(data)[:100]}")
+            response = f"❌ Unable to format market data.\n\n"
+            response += f"Query type: {query_type}\n"
+            response += f"Symbol: {symbol or 'None'}\n\n"
+            response += "Try these instead:\n"
+            response += "• 'AAPL price' - Get stock price\n"
+            response += "• 'Tesla news' - Get company news\n"
+            response += "• 'what is SIP' - Financial planning\n"
+            response += "• /market - Market overview"
 
         response += "\n\n⚠️ _Not financial advice. DYOR._"
         return response
