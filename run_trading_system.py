@@ -77,7 +77,7 @@ def start_monitor():
 
 def view_summary():
     """View trade summary"""
-    from database import get_trade_summary
+    from database_postgres import get_trade_summary
 
     print("\n📊 TRADE SUMMARY (Last 30 days)")
     print("═" * 50)
@@ -100,7 +100,7 @@ def view_summary():
 
 def view_pending():
     """View pending trades"""
-    from database import get_pending_trades
+    from database_postgres import get_pending_trades
 
     print("\n📋 PENDING TRADES")
     print("═" * 50)
@@ -122,7 +122,7 @@ def view_pending():
 
 def view_open():
     """View open trades"""
-    from database import get_open_trades
+    from database_postgres import get_open_trades
 
     print("\n🔓 OPEN TRADES")
     print("═" * 50)

@@ -3,7 +3,7 @@ import yfinance as yf
 import pandas as pd
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
-from database import (
+from database_postgres import (
     create_trade, get_pending_trades, get_open_trades,
     update_trade_status, close_trade, get_trade_summary
 )

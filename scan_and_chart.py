@@ -3,20 +3,24 @@ import os
 import yaml
 import numpy as np
 import pandas as pd
-import yfinance as yf
-from ta.trend import ADXIndicator
+from ta.trend import ADXIndicator, MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands, AverageTrueRange
+from ta.volume import VolumeWeightedAveragePrice
 import mplfinance as mpf
 from utils import post_to_slack
-from telegram_bot import send_telegram_alerts
-from database import init_database, store_scan_results
+from telegram_bot import send_telegram_alerts, is_telegram_configured
+from database_postgres import init_database, store_scan_results
+from market_data import fetch_price_history
 from fundamentals import fetch_fundamentals, recommend_trade_action
+from signals_engine import SIGNAL_DEFINITIONS, evaluate_signals
 
 pd.options.mode.chained_assignment = None
 
-def get_clean_prices(ticker, period, interval):
-    df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True)
+def get_clean_prices(ticker, period, interval, data_cfg=None):
+    data_cfg = data_cfg or {}
+    provider = data_cfg.get("provider", "yfinance")
+    df = fetch_price_history(ticker, period, interval, provider=provider, data_cfg=data_cfg)
     if df.empty:
         return df
 
@@ -61,54 +65,24 @@ def add_indicators(df, cfg):
     # Volume moving average for spike detection
     df["vol_ma_20"] = df["Volume"].rolling(window=20).mean()
 
-    return df
+    # MACD for momentum
+    macd = MACD(close=df["Close"])
+    df["macd"] = macd.macd()
+    df["macd_signal"] = macd.macd_signal()
+    df["macd_hist"] = macd.macd_diff()
 
-def consolidating(df, cfg):
-    s = cfg["signals"]["consolidation"]
-    t = df.tail(s["lookback"])
-    return (
-        t["bb_width"].mean() < s["bb_width_mean_max"] and
-        t["atr_pct"].mean()  < s["atr_pct_mean_max"] and
-        t["adx"].mean()      < s["adx_mean_max"]
+    # VWAP
+    vwap_window = cfg.get("signals", {}).get("vwap_reclaim", {}).get("lookback", 20)
+    vwap = VolumeWeightedAveragePrice(
+        high=df["High"],
+        low=df["Low"],
+        close=df["Close"],
+        volume=df["Volume"],
+        window=vwap_window
     )
+    df["vwap"] = vwap.volume_weighted_average_price()
 
-def buy_the_dip(df, cfg):
-    s = cfg["signals"]["buy_the_dip"]
-    last = df.iloc[-1]
-    cond1 = last["rsi"] <= s["rsi_max"]
-    cond2 = last["Close"] < last["bb_low"] if s["close_below_lower_bb"] else True
-    return cond1 and cond2
-
-def breakout(df, cfg):
-    """
-    Detect breakout: price breaks above recent high with ADX confirmation
-    """
-    s = cfg["signals"]["breakout"]
-    lookback = s["lookback"]
-    last = df.iloc[-1]
-
-    # Get recent high (excluding today)
-    recent_high = df["High"].iloc[-lookback:-1].max()
-
-    # Breakout conditions
-    price_breakout = last["Close"] > recent_high
-    adx_confirm = last["adx"] >= s["adx_min"]
-
-    return price_breakout and adx_confirm
-
-def volume_spike(df, cfg):
-    """
-    Detect volume spike: current volume significantly above average
-    """
-    s = cfg["signals"]["volume_spike"]
-    last = df.iloc[-1]
-
-    # Avoid division by zero
-    if pd.isna(last["vol_ma_20"]) or last["vol_ma_20"] == 0:
-        return False
-
-    volume_ratio = last["Volume"] / last["vol_ma_20"]
-    return volume_ratio >= s["volume_multiplier"]
+    return df
 
 def trend_direction(df):
     """
@@ -132,24 +106,13 @@ def trend_direction(df):
     # Everything else is choppy
     return "CHOPPY"
 
-def calculate_signal_score(cons, dip, brk, vol_spike, trend):
-    """
-    Calculate signal score based on detected patterns
-    Higher score = stronger signal
-    """
+def calculate_signal_score(signals: dict, trend: str) -> int:
     score = 0
-
-    if cons:
-        score += 1
-    if dip:
-        score += 2
-    if brk:
-        score += 3
-    if vol_spike:
-        score += 1
+    for definition in SIGNAL_DEFINITIONS:
+        if signals.get(definition.key):
+            score += definition.weight
     if trend == "UP":
         score += 1
-
     return score
 
 def save_chart(df, ticker, outdir):
@@ -218,7 +181,7 @@ def main():
 
     for t in cfg["tickers"]:
         try:
-            df = get_clean_prices(t, cfg["data"]["period"], cfg["data"]["interval"])
+            df = get_clean_prices(t, cfg["data"]["period"], cfg["data"]["interval"], cfg.get("data"))
             if df.empty:
                 print(f"[NO DATA] {t}")
                 continue
@@ -226,14 +189,11 @@ def main():
             df = add_indicators(df, cfg)
 
             # Detect all signals
-            cons = consolidating(df, cfg)
-            dip  = buy_the_dip(df, cfg)
-            brk  = breakout(df, cfg)
-            vol_spike = volume_spike(df, cfg)
+            signal_flags = evaluate_signals(df, cfg)
             trend = trend_direction(df)
 
             # Technical score
-            technical_score = calculate_signal_score(cons, dip, brk, vol_spike, trend)
+            technical_score = calculate_signal_score(signal_flags, trend)
 
             # Fundamentals & combined view
             fundamentals = fetch_fundamentals(t)
@@ -243,15 +203,11 @@ def main():
 
             last = df.iloc[-1]
 
-            results.append({
+            result_row = {
                 "Ticker": t,
                 "Score": combined_score,
                 "TechnicalScore": technical_score,
                 "FundamentalScore": fund_score,
-                "Consolidating": cons,
-                "BuyDip": dip,
-                "Breakout": brk,
-                "VolSpike": vol_spike,
                 "Trend": trend,
                 "BBWidth_pct": round(last["bb_width"]*100,2),
                 "ATR%": round(last["atr_pct"]*100,2),
@@ -266,7 +222,11 @@ def main():
                 "FundamentalReasons": fundamentals.reasons,
                 "Action": action_info["action"],
                 "ActionReason": action_info["reason"],
-            })
+            }
+
+            result_row.update(signal_flags)
+
+            results.append(result_row)
 
             save_chart(df, t, cfg["output"]["charts_dir"])
 
@@ -289,8 +249,11 @@ def main():
         msg += f"{r['Ticker']}: CONS={r['Consolidating']} DIP={r['BuyDip']} RSI={r['RSI']}\n"
     post_to_slack(msg)
 
-    # Send Telegram alerts
-    send_telegram_alerts(results, cfg, cfg["output"]["charts_dir"])
+    # Send Telegram alerts if configured
+    if is_telegram_configured(cfg):
+        send_telegram_alerts(results, cfg, cfg["output"]["charts_dir"])
+    else:
+        print("[TELEGRAM] Skipping alerts (set TELEGRAM_BOT_TOKEN/CHAT_ID or update config to enable)")
 
     # Store results in database
     scan_id = store_scan_results(results)

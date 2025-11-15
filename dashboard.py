@@ -8,9 +8,8 @@ import sys
 from pathlib import Path
 import time
 import yaml
-import yfinance as yf
 from streamlit_autorefresh import st_autorefresh
-from database import (
+from database_postgres import (
     get_recent_scans,
     get_top_signals,
     get_signal_stats,
@@ -164,6 +163,12 @@ def display_signal_badges(row):
         badges.append('🚀 BREAKOUT')
     if row.get('VolSpike'):
         badges.append('📈 VOL SPIKE')
+    if row.get('EMABullish'):
+        badges.append('📐 EMA STACK')
+    if row.get('MACDBullish'):
+        badges.append('🎯 MACD BULL')
+    if row.get('VWAPReclaim'):
+        badges.append('💧 VWAP RECLAIM')
 
     return ' | '.join(badges) if badges else '—'
 
@@ -218,7 +223,7 @@ def main():
                     st.info("💡 **Troubleshooting:**")
                     st.caption("• Check your internet connection")
                     st.caption("• Verify tickers in config.yaml")
-                    st.caption("• Ensure yfinance is installed: `pip install yfinance`")
+                    st.caption("• Ensure dependencies are installed: `pip install -r requirements.txt`")
                     st.caption("• Try running manually: `python scan_and_chart.py`")
 
         st.markdown("---")
@@ -243,7 +248,7 @@ def main():
 
         st.markdown("---")
         st.caption("Built with Python & Streamlit")
-        st.caption("Powered by yfinance")
+        st.caption("Powered by AI Stock Agent data pipeline")
 
     # Auto-run scan if data is stale (intraday analysis)
     run_scan_if_stale(max_age_minutes=15)
@@ -280,16 +285,24 @@ def main():
         st.metric("Total Scanned", len(load_scan_results()))
 
     with col2:
-        st.metric("🟢 Consolidation", int(df['Consolidating'].sum()) if not df.empty else 0)
+        st.metric("🟢 Consolidation", int(df['Consolidating'].sum()) if not df.empty and 'Consolidating' in df.columns else 0)
 
     with col3:
-        st.metric("📉 Buy-the-Dip", int(df['BuyDip'].sum()) if not df.empty else 0)
+        st.metric("📉 Buy-the-Dip", int(df['BuyDip'].sum()) if not df.empty and 'BuyDip' in df.columns else 0)
 
     with col4:
-        st.metric("🚀 Breakout", int(df['Breakout'].sum()) if not df.empty else 0)
+        st.metric("🚀 Breakout", int(df['Breakout'].sum()) if not df.empty and 'Breakout' in df.columns else 0)
 
     with col5:
-        st.metric("📈 Volume Spike", int(df['VolSpike'].sum()) if not df.empty else 0)
+        st.metric("📈 Volume Spike", int(df['VolSpike'].sum()) if not df.empty and 'VolSpike' in df.columns else 0)
+
+    extra1, extra2, extra3 = st.columns(3)
+    with extra1:
+        st.metric("📐 EMA Stack", int(df['EMABullish'].sum()) if not df.empty and 'EMABullish' in df.columns else 0)
+    with extra2:
+        st.metric("🎯 MACD Bullish", int(df['MACDBullish'].sum()) if not df.empty and 'MACDBullish' in df.columns else 0)
+    with extra3:
+        st.metric("💧 VWAP Reclaim", int(df['VWAPReclaim'].sum()) if not df.empty and 'VWAPReclaim' in df.columns else 0)
 
     st.markdown("---")
 
@@ -400,7 +413,12 @@ def main():
                     with st.spinner(f"Loading {selected_ticker} chart..."):
                         try:
                             # Fetch data
-                            ticker_df = get_clean_prices(selected_ticker, cfg["data"]["period"], cfg["data"]["interval"])
+                            ticker_df = get_clean_prices(
+                                selected_ticker,
+                                cfg["data"]["period"],
+                                cfg["data"]["interval"],
+                                cfg.get("data"),
+                            )
 
                             if not ticker_df.empty:
                                 # Add indicators
@@ -452,7 +470,7 @@ def main():
         if not df.empty:
             # Format boolean columns
             display_df = df.copy()
-            bool_cols = ['Consolidating', 'BuyDip', 'Breakout', 'VolSpike']
+            bool_cols = ['Consolidating', 'BuyDip', 'Breakout', 'VolSpike', 'EMABullish', 'MACDBullish', 'VWAPReclaim']
             for col in bool_cols:
                 if col in display_df.columns:
                     display_df[col] = display_df[col].apply(lambda x: '✅' if x else '—')
