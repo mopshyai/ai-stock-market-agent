@@ -87,18 +87,27 @@ class TradingAssistantBot:
         self.ai_enabled = False
 
         if self.gemini_key and GEMINI_AVAILABLE:
-            genai.configure(api_key=self.gemini_key)
-            self.gemini_model = genai.GenerativeModel('gemini-1.5-flash')
-            self.ai_provider = "gemini"
-            self.ai_enabled = True
-            logger.info("✅ Gemini AI integration enabled")
-        elif self.openai_key and OPENAI_AVAILABLE:
-            openai.api_key = self.openai_key
-            self.ai_provider = "openai"
-            self.ai_enabled = True
-            logger.info("✅ OpenAI integration enabled")
-        else:
-            logger.warning("⚠️  No AI provider configured - using basic responses")
+            self.gemini_model_name = os.getenv("GEMINI_MODEL_NAME", "gemini-pro")
+            try:
+                genai.configure(api_key=self.gemini_key)
+                self.gemini_model = genai.GenerativeModel(self.gemini_model_name)
+                self.ai_provider = "gemini"
+                self.ai_enabled = True
+                logger.info(f"✅ Gemini AI integration enabled (model: {self.gemini_model_name})")
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize Gemini model '{self.gemini_model_name}': {e}")
+                self.gemini_model = None
+                self.ai_provider = None
+                self.ai_enabled = False
+
+        if not self.ai_enabled:
+            if self.openai_key and OPENAI_AVAILABLE:
+                openai.api_key = self.openai_key
+                self.ai_provider = "openai"
+                self.ai_enabled = True
+                logger.info("✅ OpenAI integration enabled")
+            else:
+                logger.warning("⚠️  No AI provider configured - using basic responses")
 
         # Initialize market data engine
         if MarketDataEngine:
@@ -553,10 +562,14 @@ Use Markdown formatting."""
 
         # News query
         elif query_type == 'news' and isinstance(data, list):
-            response = f"📰 *Latest News for {symbol}*\n\n"
-            for i, news in enumerate(data[:5], 1):
-                response += f"{i}. {news['title']}\n"
-                response += f"   📅 {news['published']} | {news['publisher']}\n\n"
+            if not data:
+                response = f"📰 *Latest News*\n\nNo news available at the moment. Try again later or specify a stock symbol.\n"
+            else:
+                label = f"Latest News for {symbol}" if symbol and symbol != 'SPY' else "Market News"
+                response = f"📰 *{label}*\n\n"
+                for i, news in enumerate(data[:5], 1):
+                    response += f"{i}. {news['title']}\n"
+                    response += f"   📅 {news['published']} | {news['publisher']}\n\n"
 
         # Why query
         elif query_type == 'why' and isinstance(data, dict):
@@ -616,8 +629,66 @@ Use Markdown formatting."""
         """Basic keyword-based responses (fallback)"""
         message_lower = message.lower()
 
+        # Financial Planning - SIP
+        if 'sip' in message_lower:
+            return """
+📊 *SIP (Systematic Investment Plan)*
+
+SIP is a disciplined way to invest in mutual funds.
+
+*How it works:*
+• Invest a fixed amount regularly (monthly/weekly)
+• Buys more units when prices are low
+• Buys fewer units when prices are high
+• This is called "Rupee Cost Averaging"
+
+*Benefits:*
+• 💰 Start with as little as ₹500/month
+• 📈 Compound growth over time
+• 🎯 Disciplined investing habit
+• ⚖️ Reduces market timing risk
+
+*Example:*
+₹5,000/month for 10 years @ 12% return
+= ~₹11.6 Lakhs invested → ~₹20 Lakhs value
+
+*Popular for:* Retirement, child education, wealth creation
+
+⚠️ _Not financial advice. DYOR. Mutual funds subject to market risk._
+"""
+
+        # Financial Planning - EMI
+        elif 'emi' in message_lower:
+            return """
+💳 *EMI (Equated Monthly Installment)*
+
+EMI is a fixed monthly payment for loans.
+
+*How it works:*
+• Split your loan into equal monthly payments
+• Each EMI = Principal + Interest
+• Interest is higher in early EMIs
+• Principal portion increases over time
+
+*EMI Calculation:*
+EMI = [P × r × (1+r)^n] / [(1+r)^n - 1]
+Where: P = Loan, r = Monthly rate, n = Months
+
+*Example:*
+₹10 Lakh loan @ 9% for 5 years
+= ₹20,758/month
+Total paid = ₹12.45 Lakhs (₹2.45L interest)
+
+*Tips:*
+• 💡 Lower tenure = Less interest
+• 📉 Prepay when possible
+• 🎯 Keep EMIs < 40% of income
+
+⚠️ _Not financial advice. Calculate carefully before borrowing._
+"""
+
         # Trading indicators
-        if 'rsi' in message_lower:
+        elif 'rsi' in message_lower:
             return """
 📊 *RSI (Relative Strength Index)*
 

@@ -217,7 +217,7 @@ class StockQueryDetector:
             return 'price'
 
         # News queries
-        if any(word in text_lower for word in ['news', 'latest', 'update', 'happening']):
+        if any(word in text_lower for word in ['news', 'latest', 'update', 'happening', 'headlines']):
             return 'news'
 
         # "Why" queries
@@ -260,8 +260,13 @@ class MarketIntelligence:
         if symbol and query_type == 'price':
             result['data'] = self.stock_fetcher.get_stock_price(symbol)
 
-        elif symbol and query_type == 'news':
-            result['data'] = self.news_fetcher.get_stock_news(symbol)
+        elif query_type == 'news':
+            # If symbol specified, get stock news; otherwise get general market news
+            if symbol:
+                result['data'] = self.news_fetcher.get_stock_news(symbol)
+            else:
+                result['data'] = self.news_fetcher.get_market_news()
+                result['symbol'] = 'SPY'  # Use SPY as proxy for general market
 
         elif symbol and query_type == 'why':
             # Get both price and news for context
