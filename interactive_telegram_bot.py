@@ -60,9 +60,13 @@ try:
     import os
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from content_engine import MarketDataEngine
+    from market_intelligence import MarketIntelligence
+    MARKET_INTELLIGENCE_AVAILABLE = True
 except ImportError as e:
-    logger.warning(f"⚠️  Could not import content_engine: {e}")
+    logger.warning(f"⚠️  Could not import modules: {e}")
     MarketDataEngine = None
+    MarketIntelligence = None
+    MARKET_INTELLIGENCE_AVAILABLE = False
 
 
 class TradingAssistantBot:
@@ -101,6 +105,13 @@ class TradingAssistantBot:
             self.market_engine = MarketDataEngine()
         else:
             self.market_engine = None
+
+        # Initialize market intelligence
+        if MARKET_INTELLIGENCE_AVAILABLE and MarketIntelligence:
+            self.market_intel = MarketIntelligence()
+            logger.info("✅ Market Intelligence enabled (stocks, news, analysis)")
+        else:
+            self.market_intel = None
 
 
     # ============================================================
@@ -390,34 +401,52 @@ Examples:
     # ============================================================
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle natural language questions using AI"""
+        """Handle natural language questions using AI + Market Intelligence"""
         user_message = update.message.text
         user_name = update.effective_user.first_name or "there"
 
         logger.info(f"User question: {user_message}")
 
-        # If OpenAI is available, use it
+        # First, check if this is a stock/market query using Market Intelligence
+        market_context = None
+        if self.market_intel:
+            try:
+                market_result = self.market_intel.process_query(user_message)
+                if market_result and market_result.get('data'):
+                    market_context = market_result
+                    logger.info(f"Market query detected: {market_result['query_type']}, Symbol: {market_result.get('symbol')}")
+            except Exception as e:
+                logger.error(f"Market intelligence error: {e}")
+
+        # Use AI with market context if available
         if self.ai_enabled:
             try:
-                response = await self.get_ai_response(user_message)
+                response = await self.get_ai_response(user_message, market_context)
                 await update.message.reply_text(response, parse_mode='Markdown')
                 return
             except Exception as e:
-                logger.error(f"OpenAI error: {e}")
+                logger.error(f"AI error: {e}")
                 # Fall through to basic responses
+
+        # If market context available but AI failed, format market data manually
+        if market_context:
+            response = self.format_market_response(market_context)
+            await update.message.reply_text(response, parse_mode='Markdown')
+            return
 
         # Basic keyword-based responses (fallback)
         response = self.get_basic_response(user_message)
         await update.message.reply_text(response, parse_mode='Markdown')
 
 
-    async def get_ai_response(self, question: str) -> str:
-        """Get AI-powered response using Gemini or OpenAI"""
+    async def get_ai_response(self, question: str, market_context: Optional[Dict] = None) -> str:
+        """Get AI-powered response using Gemini or OpenAI with optional market data context"""
         try:
-            # System prompt for AI
-            system_prompt = """You are an AI Stock Trading Assistant.
+            # Base system prompt
+            system_prompt = """You are an AI Stock Trading Assistant with real-time market data access.
 
 You help users with:
+- Real-time stock prices, news, and analysis
 - Trading concepts (RSI, MACD, breakouts, etc.)
 - Stock market questions
 - AI industry updates
@@ -426,16 +455,59 @@ You help users with:
 
 Keep responses:
 - Concise (2-3 paragraphs max)
+- Data-driven when market data is provided
 - Educational and helpful
 - Include emojis when appropriate
 - End with: "⚠️ Not financial advice. DYOR."
 
 Use Markdown formatting."""
 
+            # Build context from market data if available
+            context_data = ""
+            if market_context:
+                query_type = market_context.get('query_type')
+                symbol = market_context.get('symbol')
+                data = market_context.get('data')
+
+                if data:
+                    context_data = "\n\n**REAL-TIME MARKET DATA:**\n"
+
+                    # Price data
+                    if isinstance(data, dict) and 'price_data' in data:
+                        price_info = data['price_data']
+                        if price_info:
+                            context_data += f"\n{symbol} Current Data:\n"
+                            context_data += f"- Price: ${price_info.get('price', 'N/A')}\n"
+                            context_data += f"- Change: {price_info.get('change', 0):+.2f} ({price_info.get('change_pct', 0):+.2f}%)\n"
+                            context_data += f"- Volume: {price_info.get('volume', 0):,}\n"
+                            context_data += f"- Day Range: ${price_info.get('day_low', 'N/A')} - ${price_info.get('day_high', 'N/A')}\n"
+                            if price_info.get('market_cap'):
+                                context_data += f"- Market Cap: ${price_info['market_cap']/1e9:.2f}B\n"
+                    elif isinstance(data, dict) and 'price' in data:
+                        context_data += f"\n{symbol}: ${data['price']} ({data.get('change_pct', 0):+.2f}%)\n"
+
+                    # News data
+                    if isinstance(data, dict) and 'news' in data:
+                        news_items = data['news']
+                        if news_items:
+                            context_data += f"\nLatest News for {symbol}:\n"
+                            for i, news in enumerate(news_items[:3], 1):
+                                context_data += f"{i}. {news['title']} ({news['published']})\n"
+
+                    # Top stocks
+                    if isinstance(data, list) and len(data) > 0 and 'symbol' in data[0]:
+                        context_data += "\nTop Stocks Today:\n"
+                        for i, stock in enumerate(data[:10], 1):
+                            context_data += f"{i}. {stock['symbol']}: ${stock['price']} ({stock['change_pct']:+.2f}%)\n"
+
+            # Combine everything
+            full_question = question
+            if context_data:
+                full_question = f"{context_data}\n\nUser Question: {question}\n\nProvide an intelligent analysis using the above real-time data."
+
             # Use Gemini if available
             if self.ai_provider == "gemini":
-                # Combine system prompt with user question for Gemini
-                full_prompt = f"{system_prompt}\n\nUser question: {question}"
+                full_prompt = f"{system_prompt}\n\n{full_question}"
                 response = self.gemini_model.generate_content(full_prompt)
                 return response.text.strip()
 
@@ -445,9 +517,9 @@ Use Markdown formatting."""
                     model="gpt-3.5-turbo",
                     messages=[
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": question}
+                        {"role": "user", "content": full_question}
                     ],
-                    max_tokens=500,
+                    max_tokens=700,
                     temperature=0.7
                 )
                 return response.choices[0].message.content.strip()
@@ -455,6 +527,89 @@ Use Markdown formatting."""
         except Exception as e:
             logger.error(f"AI API error ({self.ai_provider}): {e}")
             raise
+
+
+    def format_market_response(self, market_context: Dict) -> str:
+        """Format market intelligence data into a readable response (fallback when AI unavailable)"""
+        query_type = market_context.get('query_type')
+        symbol = market_context.get('symbol')
+        data = market_context.get('data')
+
+        if not data:
+            return "❌ No market data available for this query."
+
+        response = ""
+
+        # Price query
+        if query_type == 'price' and isinstance(data, dict):
+            response = f"📊 *{symbol}* - {data.get('name', symbol)}\n\n"
+            response += f"💰 Price: ${data['price']}\n"
+            change_emoji = "🟢" if data['change'] >= 0 else "🔴"
+            response += f"{change_emoji} Change: {data['change']:+.2f} ({data['change_pct']:+.2f}%)\n"
+            response += f"📈 Volume: {data['volume']:,}\n"
+            response += f"📉 Day Range: ${data.get('day_low', 'N/A')} - ${data.get('day_high', 'N/A')}\n"
+            if data.get('market_cap'):
+                response += f"💎 Market Cap: ${data['market_cap']/1e9:.2f}B\n"
+
+        # News query
+        elif query_type == 'news' and isinstance(data, list):
+            response = f"📰 *Latest News for {symbol}*\n\n"
+            for i, news in enumerate(data[:5], 1):
+                response += f"{i}. {news['title']}\n"
+                response += f"   📅 {news['published']} | {news['publisher']}\n\n"
+
+        # Why query
+        elif query_type == 'why' and isinstance(data, dict):
+            price_data = data.get('price_data', {})
+            news = data.get('news', [])
+
+            response = f"🔍 *Analysis for {symbol}*\n\n"
+
+            if price_data:
+                response += f"💰 Price: ${price_data['price']} ({price_data['change_pct']:+.2f}%)\n\n"
+
+            if news:
+                response += "📰 *Recent News:*\n"
+                for i, item in enumerate(news[:3], 1):
+                    response += f"{i}. {item['title']}\n"
+                response += "\n"
+
+            response += "💡 _For AI-powered analysis, ensure Gemini API key is configured._\n"
+
+        # Top stocks
+        elif isinstance(data, list) and len(data) > 0:
+            list_type = "Top Stocks"
+            if 'gainer' in market_context.get('context', '').lower():
+                list_type = "🔥 Top Gainers"
+            elif 'loser' in market_context.get('context', '').lower():
+                list_type = "📉 Top Losers"
+            elif 'active' in market_context.get('context', '').lower():
+                list_type = "📊 Most Active"
+
+            response = f"*{list_type} Today*\n\n"
+            for i, stock in enumerate(data[:10], 1):
+                emoji = "🟢" if stock['change_pct'] >= 0 else "🔴"
+                response += f"{i}. {emoji} *{stock['symbol']}*: ${stock['price']} ({stock['change_pct']:+.2f}%)\n"
+
+        # Generic stock data
+        elif isinstance(data, dict) and 'price_data' in data:
+            price_info = data['price_data']
+            if price_info:
+                response = f"📊 *{symbol}* - {price_info.get('name', symbol)}\n\n"
+                response += f"💰 ${price_info['price']} ({price_info['change_pct']:+.2f}%)\n"
+                response += f"📈 Volume: {price_info['volume']:,}\n\n"
+
+            news_items = data.get('news', [])
+            if news_items:
+                response += "*Latest News:*\n"
+                for news in news_items[:3]:
+                    response += f"• {news['title']}\n"
+
+        if not response:
+            response = "❌ Unable to format market data."
+
+        response += "\n\n⚠️ _Not financial advice. DYOR._"
+        return response
 
 
     def get_basic_response(self, message: str) -> str:
