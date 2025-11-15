@@ -40,24 +40,22 @@ except ImportError:
     OPENAI_AVAILABLE = False
     print("⚠️  OpenAI not available. Install with: pip install openai")
 
-# Import existing modules
-try:
-    import sys
-    import os
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from database import get_db_connection
-    from content_engine import MarketDataEngine
-except ImportError as e:
-    logger.warning(f"⚠️  Could not import modules: {e}")
-    get_db_connection = None
-    MarketDataEngine = None
-
-# Configure logging
+# Configure logging FIRST (before any logger usage)
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Import existing modules
+try:
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from content_engine import MarketDataEngine
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import content_engine: {e}")
+    MarketDataEngine = None
 
 
 class TradingAssistantBot:
@@ -159,7 +157,7 @@ Examples:
     async def trades_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /trades command - show current trades"""
         try:
-            conn = get_db_connection()
+            conn = sqlite3.connect('stock_agent.db')
             cursor = conn.cursor()
 
             # Get open trades
@@ -223,7 +221,7 @@ Examples:
     async def summary_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /summary command - trading performance"""
         try:
-            conn = get_db_connection()
+            conn = sqlite3.connect('stock_agent.db')
             cursor = conn.cursor()
 
             # Get today's closed trades
