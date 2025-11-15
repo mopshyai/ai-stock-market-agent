@@ -130,14 +130,46 @@ class NewsFetcher:
 
             formatted_news = []
             for item in news[:limit]:
-                formatted_news.append({
-                    'title': item.get('title', ''),
-                    'publisher': item.get('publisher', ''),
-                    'link': item.get('link', ''),
-                    'published': datetime.fromtimestamp(
-                        item.get('providerPublishTime', 0)
-                    ).strftime('%Y-%m-%d %H:%M') if item.get('providerPublishTime') else 'N/A'
-                })
+                # Handle new yfinance API structure (nested under 'content')
+                content = item.get('content', {})
+
+                # Extract title
+                title = content.get('title', item.get('title', ''))
+
+                # Extract publisher
+                provider = content.get('provider', {})
+                publisher = provider.get('displayName', item.get('publisher', 'Unknown'))
+
+                # Extract link
+                canonical_url = content.get('canonicalUrl', {})
+                link = canonical_url.get('url', item.get('link', ''))
+                if not link:
+                    link = content.get('previewUrl', '')
+
+                # Extract publish date
+                pub_date_str = content.get('pubDate', '') or content.get('displayTime', '')
+                if pub_date_str:
+                    try:
+                        # Parse ISO format: 2025-11-15T22:04:51Z
+                        pub_date = datetime.fromisoformat(pub_date_str.replace('Z', '+00:00'))
+                        published = pub_date.strftime('%b %d, %I:%M %p')
+                    except:
+                        published = pub_date_str[:10]  # Just the date
+                elif item.get('providerPublishTime'):
+                    published = datetime.fromtimestamp(
+                        item.get('providerPublishTime')
+                    ).strftime('%b %d, %I:%M %p')
+                else:
+                    published = 'Recent'
+
+                # Only add if we have at least a title
+                if title:
+                    formatted_news.append({
+                        'title': title,
+                        'publisher': publisher,
+                        'link': link,
+                        'published': published
+                    })
 
             return formatted_news
 
