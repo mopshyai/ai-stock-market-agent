@@ -53,7 +53,7 @@ charts/*.png
 
 # Streamlit
 .streamlit/secrets.toml
-.streamlit/config.toml
+# Note: config.toml is committed for consistent theming
 
 # Jupyter Notebooks
 .ipynb_checkpoints/
