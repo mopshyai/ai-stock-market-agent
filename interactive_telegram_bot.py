@@ -87,7 +87,7 @@ class TradingAssistantBot:
         self.ai_enabled = False
 
         if self.gemini_key and GEMINI_AVAILABLE:
-            self.gemini_model_name = os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-pro")
+            self.gemini_model_name = os.getenv("GEMINI_MODEL_NAME", "gemini-2.0-flash-exp")
             try:
                 genai.configure(api_key=self.gemini_key)
                 self.gemini_model = genai.GenerativeModel(self.gemini_model_name)
