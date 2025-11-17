@@ -18,6 +18,14 @@ from database import (
 from interactive_charts import create_interactive_chart
 from scan_and_chart import get_clean_prices, add_indicators
 
+# Import live scanner
+try:
+    from live_scanner import scan_market_live
+    LIVE_SCANNER_AVAILABLE = True
+except ImportError:
+    LIVE_SCANNER_AVAILABLE = False
+    print("⚠️ Live scanner not available")
+
 # Page config
 st.set_page_config(
     page_title="AI Stock Market Agent",
@@ -69,8 +77,31 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+@st.cache_data(ttl=15 * 60)  # Cache for 15 minutes
+def load_scan_results_live(universe: str = "all", min_score: int = 0, include_fundamentals: bool = False):
+    """
+    Load scan results from live market scanner (no CSV)
+    Cached for 15 minutes
+    """
+    if not LIVE_SCANNER_AVAILABLE:
+        return None
+
+    try:
+        df = scan_market_live(
+            universe=universe,
+            min_score=min_score if min_score > 0 else None,
+            limit=None,
+            max_workers=30,
+            include_fundamentals=include_fundamentals,
+        )
+        return df
+    except Exception as e:
+        st.error(f"Live scanner error: {e}")
+        return None
+
+
 def load_scan_results():
-    """Load the latest scan results from CSV"""
+    """Load the latest scan results from CSV (fallback mode)"""
     csv_path = "scan_results.csv"
     if os.path.exists(csv_path):
         df = pd.read_csv(csv_path)
@@ -206,36 +237,71 @@ def main():
         st.caption("Intelligent Market Analysis")
         st.markdown("---")
 
-        st.subheader("⚡ Quick Actions")
+        # Data Source Selection
+        st.subheader("📊 Data Source")
 
-        if st.button("🔄 Run New Scan", use_container_width=True, type="primary"):
-            with st.spinner("Scanning markets... This may take 1-2 minutes"):
-                success, stdout, stderr = run_scan()
-
-                if success:
-                    st.success("✅ Scan completed successfully!")
-                    st.rerun()
-                else:
-                    st.error("❌ Scan failed")
-                    if stderr:
-                        with st.expander("Error Details"):
-                            st.code(stderr)
-                    st.info("💡 **Troubleshooting:**")
-                    st.caption("• Check your internet connection")
-                    st.caption("• Verify tickers in config.yaml")
-                    st.caption("• Ensure dependencies are installed: `pip install -r requirements.txt`")
-                    st.caption("• Try running manually: `python scan_and_chart.py`")
-
-        st.markdown("---")
-
-        # Last scan info
-        last_scan = get_last_scan_time()
-        if last_scan:
-            st.metric("Last Scan", last_scan.strftime("%b %d, %Y"))
-            st.caption(f"at {last_scan.strftime('%I:%M %p')}")
+        if LIVE_SCANNER_AVAILABLE:
+            use_live_scanner = st.checkbox(
+                "🔴 LIVE Scanner (In-Memory)",
+                value=True,
+                help="Scan markets live without CSV files. Auto-cached for 15 min."
+            )
         else:
-            st.warning("No scan data found")
-            st.caption("Click 'Run New Scan' to start")
+            use_live_scanner = False
+            st.warning("Live scanner not available")
+
+        if use_live_scanner:
+            # Universe selector
+            universe = st.selectbox(
+                "Stock Universe",
+                options=["popular", "sp500", "nasdaq100", "all"],
+                index=3,  # default "all"
+                help="• popular: ~150 stocks (fastest)\n• sp500: ~500 stocks\n• nasdaq100: ~100 stocks\n• all: ~700 stocks (S&P500 + NASDAQ)"
+            )
+
+            include_fundamentals = st.checkbox(
+                "Include Fundamentals",
+                value=False,
+                help="Fetch P/E, revenue, margins (slower)"
+            )
+
+            # Clear cache button
+            if st.button("♻️ Clear Cache & Rescan", use_container_width=True):
+                load_scan_results_live.clear()
+                st.success("Cache cleared! Rescanning...")
+                st.rerun()
+        else:
+            universe = "all"
+            include_fundamentals = False
+
+            st.subheader("⚡ CSV Mode Actions")
+
+            if st.button("🔄 Run New Scan", use_container_width=True, type="primary"):
+                with st.spinner("Scanning markets... This may take 1-2 minutes"):
+                    success, stdout, stderr = run_scan()
+
+                    if success:
+                        st.success("✅ Scan completed successfully!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Scan failed")
+                        if stderr:
+                            with st.expander("Error Details"):
+                                st.code(stderr)
+                        st.info("💡 **Troubleshooting:**")
+                        st.caption("• Check your internet connection")
+                        st.caption("• Verify tickers in config.yaml")
+                        st.caption("• Ensure dependencies are installed: `pip install -r requirements.txt`")
+                        st.caption("• Try running manually: `python scan_and_chart.py`")
+
+            # Last scan info (CSV mode)
+            last_scan = get_last_scan_time()
+            if last_scan:
+                st.metric("Last Scan", last_scan.strftime("%b %d, %Y"))
+                st.caption(f"at {last_scan.strftime('%I:%M %p')}")
+            else:
+                st.warning("No scan data found")
+                st.caption("Click 'Run New Scan' to start")
 
         st.markdown("---")
 
@@ -244,22 +310,56 @@ def main():
         show_charts = st.checkbox("Show Charts", value=True)
         interactive_charts = st.checkbox("🎯 Interactive Charts", value=True, help="Use TradingView-style interactive charts (zoom, pan, crosshair)")
         show_only_signals = st.checkbox("Only Show Signals", value=False)
-        min_score = st.slider("Minimum Score", 0, 8, 0)
+        min_score = st.slider("Minimum Score", 0, 10, 0)
+
+        if use_live_scanner:
+            max_display = st.number_input(
+                "Max Rows to Display",
+                min_value=50,
+                max_value=1000,
+                value=200,
+                step=50,
+                help="Limit results for performance"
+            )
+        else:
+            max_display = 1000
 
         st.markdown("---")
         st.caption("Built with Python & Streamlit")
         st.caption("Powered by AI Stock Agent data pipeline")
 
-    # Auto-run scan if data is stale (intraday analysis)
-    run_scan_if_stale(max_age_minutes=15)
+    # Load data based on mode
+    if use_live_scanner:
+        # Live scanner mode
+        with st.spinner(f"🔴 Scanning {universe} universe live... This may take 1-3 minutes..."):
+            df = load_scan_results_live(
+                universe=universe,
+                min_score=0,  # Apply filter after loading
+                include_fundamentals=include_fundamentals
+            )
 
-    # Main content
-    df = load_scan_results()
+        if df is None or df.empty:
+            st.error("⚠️ Live scan failed or returned no results")
+            st.info("Try:")
+            st.caption("• Select a different universe")
+            st.caption("• Check your internet connection")
+            st.caption("• Clear cache and rescan")
+            return
 
-    if df is None:
-        st.warning("⚠️ No scan results found. Run a scan to get started!")
-        st.info("👈 Click 'Run New Scan' in the sidebar")
-        return
+        # Show scan info
+        st.sidebar.success(f"✅ Scanned {len(df)} stocks")
+        st.sidebar.caption(f"Universe: {universe}")
+        st.sidebar.caption(f"Cached until: {datetime.now() + timedelta(minutes=15):%I:%M %p}")
+
+    else:
+        # CSV mode (fallback)
+        run_scan_if_stale(max_age_minutes=15)
+        df = load_scan_results()
+
+        if df is None:
+            st.warning("⚠️ No scan results found. Run a scan to get started!")
+            st.info("👈 Click 'Run New Scan' in the sidebar")
+            return
 
     # Apply filters
     original_count = len(df)
@@ -275,6 +375,11 @@ def main():
     if min_score > 0:
         df = df[df['Score'] >= min_score]
 
+    # Apply max display limit (live mode only)
+    if use_live_scanner and len(df) > max_display:
+        df = df.head(max_display)
+        st.info(f"📊 Showing top {max_display} of {original_count} stocks (filtered by score)")
+
     # Check if filters removed all stocks
     filtered_out = original_count - len(df)
 
@@ -282,7 +387,7 @@ def main():
     col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
-        st.metric("Total Scanned", len(load_scan_results()))
+        st.metric("Total Scanned", original_count)
 
     with col2:
         st.metric("🟢 Consolidation", int(df['Consolidating'].sum()) if not df.empty and 'Consolidating' in df.columns else 0)
