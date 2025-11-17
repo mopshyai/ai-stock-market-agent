@@ -53,6 +53,178 @@ def calculate_signal_score(signal_flags: Dict, trend: str) -> int:
     return score
 
 
+def calculate_potential_moves(atr_pct: float, score: float, trend: str) -> Dict:
+    """
+    Calculate realistic potential move ranges for different timeframes
+    Based on ATR (volatility), score, and trend
+
+    Returns dict with:
+        potential_up_1h_pct, potential_down_1h_pct
+        potential_up_3h_pct, potential_down_3h_pct
+        potential_up_1d_pct, potential_down_1d_pct
+        potential_up_7d_pct, potential_down_7d_pct
+    """
+    import math
+
+    # Base daily move from ATR
+    daily_move_pct = atr_pct * 100  # Convert to percentage
+
+    # Scale for different timeframes using √time rule
+    move_1h = daily_move_pct * (1 / math.sqrt(24))
+    move_3h = daily_move_pct * math.sqrt(3 / 24)
+    move_1d = daily_move_pct
+    move_7d = daily_move_pct * math.sqrt(7)
+
+    # Normalize score to 0-1
+    score_norm = max(0, min(score, 10)) / 10.0
+
+    # Bias up/down based on trend and score
+    if trend == "UP":
+        up_factor = 1.0 + 0.5 * score_norm      # More upside if high score
+        down_factor = 1.0 - 0.5 * score_norm    # Less downside if high score
+    elif trend == "DOWN":
+        up_factor = 1.0 - 0.5 * score_norm
+        down_factor = 1.0 + 0.5 * score_norm
+    else:  # CHOPPY
+        up_factor = down_factor = 1.0
+
+    return {
+        'potential_up_1h_pct': round(move_1h * up_factor, 2),
+        'potential_down_1h_pct': round(move_1h * down_factor, 2),
+        'potential_up_3h_pct': round(move_3h * up_factor, 2),
+        'potential_down_3h_pct': round(move_3h * down_factor, 2),
+        'potential_up_1d_pct': round(move_1d * up_factor, 2),
+        'potential_down_1d_pct': round(move_1d * down_factor, 2),
+        'potential_up_7d_pct': round(move_7d * up_factor, 2),
+        'potential_down_7d_pct': round(move_7d * down_factor, 2),
+    }
+
+
+def determine_action_and_timeframe(
+    score: float,
+    trend: str,
+    rsi: float,
+    signal_flags: Dict,
+    potential_up_1d: float,
+    potential_down_1d: float
+) -> Dict:
+    """
+    Determine trading action and timeframe based on setup quality
+
+    Returns:
+        action: "BUY" | "WATCH" | "AVOID" | "TAKE_PROFIT" | "TRAIL_STOP"
+        timeframe_label: "scalp" | "intraday" | "swing" | "position"
+        action_reason: str (clear explanation)
+    """
+    # Calculate risk:reward ratio
+    risk_reward = potential_up_1d / potential_down_1d if potential_down_1d > 0 else 0
+
+    # BUY conditions (strong setups)
+    if score >= 8 and trend == "UP" and risk_reward > 2.0:
+        return {
+            'action': 'BUY',
+            'timeframe_label': 'swing',
+            'action_reason': f'Strong setup: Score {score}/10, uptrend, R:R {risk_reward:.2f}'
+        }
+
+    # Intraday BUY (good but not perfect)
+    if 6 <= score < 8 and trend == "UP" and risk_reward > 1.5:
+        return {
+            'action': 'BUY',
+            'timeframe_label': 'intraday',
+            'action_reason': f'Good intraday setup: Score {score}/10, R:R {risk_reward:.2f}'
+        }
+
+    # WATCH conditions (forming setups)
+    if 5 <= score < 6 and trend in ["UP", "CHOPPY"]:
+        return {
+            'action': 'WATCH',
+            'timeframe_label': 'intraday',
+            'action_reason': f'Setup forming—wait for confirmation. Score {score}/10'
+        }
+
+    # TAKE_PROFIT (overbought conditions)
+    if rsi > 75 and trend == "UP" and signal_flags.get('Breakout'):
+        return {
+            'action': 'TAKE_PROFIT',
+            'timeframe_label': 'swing_exit',
+            'action_reason': f'Overbought (RSI {rsi:.0f})—consider profit-taking'
+        }
+
+    # TRAIL_STOP (extended move)
+    if rsi > 70 and trend == "UP" and score >= 7:
+        return {
+            'action': 'TRAIL_STOP',
+            'timeframe_label': 'swing',
+            'action_reason': f'Strong but extended—trail your stop'
+        }
+
+    # AVOID (weak/risky setups)
+    if score < 5:
+        return {
+            'action': 'AVOID',
+            'timeframe_label': 'none',
+            'action_reason': f'Weak setup: Score {score}/10, low probability'
+        }
+
+    # Default: WATCH
+    return {
+        'action': 'WATCH',
+        'timeframe_label': 'intraday',
+        'action_reason': f'Neutral setup—monitor for now. Score {score}/10'
+    }
+
+
+def calculate_price_levels(
+    close: float,
+    potential_down_1d: float,
+    potential_up_1d: float,
+    action: str,
+    timeframe_label: str
+) -> Dict:
+    """
+    Calculate entry, stop-loss, and take-profit levels
+
+    Returns:
+        entry_price
+        stop_loss_price
+        take_profit_1
+        take_profit_2
+    """
+    entry_price = close
+
+    # For intraday, use tighter stops
+    if 'intraday' in timeframe_label:
+        risk_pct = potential_down_1d * 0.6  # Tighter
+        reward_pct_1 = potential_up_1d * 0.4
+        reward_pct_2 = potential_up_1d * 0.8
+    # For swing, use wider stops
+    elif 'swing' in timeframe_label:
+        risk_pct = potential_down_1d * 0.8
+        reward_pct_1 = potential_up_1d * 0.5
+        reward_pct_2 = potential_up_1d * 1.0
+    # For position, even wider
+    elif 'position' in timeframe_label:
+        risk_pct = potential_down_1d * 1.0
+        reward_pct_1 = potential_up_1d * 0.6
+        reward_pct_2 = potential_up_1d * 1.2
+    else:  # Default
+        risk_pct = potential_down_1d * 0.75
+        reward_pct_1 = potential_up_1d * 0.5
+        reward_pct_2 = potential_up_1d * 1.0
+
+    stop_loss_price = round(close * (1 - risk_pct / 100.0), 2)
+    take_profit_1 = round(close * (1 + reward_pct_1 / 100.0), 2)
+    take_profit_2 = round(close * (1 + reward_pct_2 / 100.0), 2)
+
+    return {
+        'entry_price': entry_price,
+        'stop_loss_price': stop_loss_price,
+        'take_profit_1': take_profit_1,
+        'take_profit_2': take_profit_2,
+    }
+
+
 def scan_single_ticker(ticker: str, cfg: dict, include_fundamentals: bool = True) -> Optional[Dict]:
     """
     Scan a single ticker and return result dict
@@ -85,82 +257,221 @@ def scan_single_ticker(ticker: str, cfg: dict, include_fundamentals: bool = True
 
         # Get latest values
         last = df.iloc[-1]
+        close = last["Close"]
+        rsi = last["rsi"]
+        atr_pct = last["atr_pct"]
+
+        # Calculate potential moves for all timeframes
+        potential_moves = calculate_potential_moves(atr_pct, technical_score, trend)
+
+        # Determine action and timeframe
+        action_info_enhanced = determine_action_and_timeframe(
+            score=technical_score,
+            trend=trend,
+            rsi=rsi,
+            signal_flags=signal_flags,
+            potential_up_1d=potential_moves['potential_up_1d_pct'],
+            potential_down_1d=potential_moves['potential_down_1d_pct']
+        )
+
+        # Calculate price levels
+        price_levels = calculate_price_levels(
+            close=close,
+            potential_down_1d=potential_moves['potential_down_1d_pct'],
+            potential_up_1d=potential_moves['potential_up_1d_pct'],
+            action=action_info_enhanced['action'],
+            timeframe_label=action_info_enhanced['timeframe_label']
+        )
+
+        # Build signals string
+        signals_list = []
+        if signal_flags.get('Consolidating'):
+            signals_list.append('CONSOLIDATION')
+        if signal_flags.get('BuyDip'):
+            signals_list.append('BUY_DIP')
+        if signal_flags.get('Breakout'):
+            signals_list.append('BREAKOUT')
+        if signal_flags.get('VolSpike'):
+            signals_list.append('VOL_SPIKE')
+        if signal_flags.get('VWAPReclaim'):
+            signals_list.append('VWAP_RECLAIM')
+        if signal_flags.get('EMABullish'):
+            signals_list.append('EMA_STACK')
+        if signal_flags.get('MACDBullish'):
+            signals_list.append('MACD_BULL')
+
+        signals_str = ' + '.join(signals_list) if signals_list else 'None'
 
         # Fundamentals (optional, slower)
         if include_fundamentals:
             try:
                 fundamentals = fetch_fundamentals(ticker)
                 fund_score = fundamentals.fundamental_score
-                action_info = recommend_trade_action(technical_score, fund_score, trend)
-                combined_score = action_info["total_score"]
+                combined_score = min(technical_score + fund_score, 10)  # Cap at 10
 
                 result = {
+                    # Core identification
                     "Ticker": ticker,
+                    "Close": round(close, 2),
                     "Score": combined_score,
                     "TechnicalScore": technical_score,
                     "FundamentalScore": fund_score,
                     "Trend": trend,
-                    "BBWidth_pct": round(last["bb_width"] * 100, 2),
-                    "ATR%": round(last["atr_pct"] * 100, 2),
+                    "Signals": signals_str,
+
+                    # Action & Timeframe
+                    "Action": action_info_enhanced['action'],
+                    "TimeframeLabel": action_info_enhanced['timeframe_label'],
+                    "ActionReason": action_info_enhanced['action_reason'],
+
+                    # Price Levels
+                    "EntryPrice": price_levels['entry_price'],
+                    "StopLossPrice": price_levels['stop_loss_price'],
+                    "TakeProfit1": price_levels['take_profit_1'],
+                    "TakeProfit2": price_levels['take_profit_2'],
+
+                    # Potential Moves
+                    "PotentialUp1h": potential_moves['potential_up_1h_pct'],
+                    "PotentialDown1h": potential_moves['potential_down_1h_pct'],
+                    "PotentialUp3h": potential_moves['potential_up_3h_pct'],
+                    "PotentialDown3h": potential_moves['potential_down_3h_pct'],
+                    "PotentialUp1d": potential_moves['potential_up_1d_pct'],
+                    "PotentialDown1d": potential_moves['potential_down_1d_pct'],
+                    "PotentialUp7d": potential_moves['potential_up_7d_pct'],
+                    "PotentialDown7d": potential_moves['potential_down_7d_pct'],
+
+                    # Technical Indicators
+                    "RSI": round(rsi, 2),
                     "ADX": round(last["adx"], 2),
-                    "RSI": round(last["rsi"], 2),
-                    "Close": round(last["Close"], 2),
+                    "BBWidth_pct": round(last["bb_width"] * 100, 2),
+                    "ATR%": round(atr_pct * 100, 2),
+                    "ATRValue": round(last.get("atr_pct", 0) * close, 2),
+
+                    # Fundamentals
                     "MarketCap": fundamentals.market_cap,
                     "PERatio": fundamentals.pe_ratio,
                     "RevenueGrowthPct": fundamentals.revenue_growth_pct,
                     "ProfitMarginPct": fundamentals.profit_margin_pct,
                     "FundamentalOutlook": fundamentals.outlook,
                     "FundamentalReasons": fundamentals.reasons,
-                    "Action": action_info["action"],
-                    "ActionReason": action_info["reason"],
+
+                    # Signal Flags (boolean)
+                    "VWAPReclaim": signal_flags.get('VWAPReclaim', False),
+                    "Breakout": signal_flags.get('Breakout', False),
+                    "Consolidating": signal_flags.get('Consolidating', False),
                 }
             except Exception:
                 # Fallback to technical only
                 result = {
+                    # Core identification
                     "Ticker": ticker,
+                    "Close": round(close, 2),
                     "Score": technical_score,
                     "TechnicalScore": technical_score,
                     "FundamentalScore": 0,
                     "Trend": trend,
-                    "BBWidth_pct": round(last["bb_width"] * 100, 2),
-                    "ATR%": round(last["atr_pct"] * 100, 2),
+                    "Signals": signals_str,
+
+                    # Action & Timeframe
+                    "Action": action_info_enhanced['action'],
+                    "TimeframeLabel": action_info_enhanced['timeframe_label'],
+                    "ActionReason": action_info_enhanced['action_reason'],
+
+                    # Price Levels
+                    "EntryPrice": price_levels['entry_price'],
+                    "StopLossPrice": price_levels['stop_loss_price'],
+                    "TakeProfit1": price_levels['take_profit_1'],
+                    "TakeProfit2": price_levels['take_profit_2'],
+
+                    # Potential Moves
+                    "PotentialUp1h": potential_moves['potential_up_1h_pct'],
+                    "PotentialDown1h": potential_moves['potential_down_1h_pct'],
+                    "PotentialUp3h": potential_moves['potential_up_3h_pct'],
+                    "PotentialDown3h": potential_moves['potential_down_3h_pct'],
+                    "PotentialUp1d": potential_moves['potential_up_1d_pct'],
+                    "PotentialDown1d": potential_moves['potential_down_1d_pct'],
+                    "PotentialUp7d": potential_moves['potential_up_7d_pct'],
+                    "PotentialDown7d": potential_moves['potential_down_7d_pct'],
+
+                    # Technical Indicators
+                    "RSI": round(rsi, 2),
                     "ADX": round(last["adx"], 2),
-                    "RSI": round(last["rsi"], 2),
-                    "Close": round(last["Close"], 2),
+                    "BBWidth_pct": round(last["bb_width"] * 100, 2),
+                    "ATR%": round(atr_pct * 100, 2),
+                    "ATRValue": round(atr_pct * close, 2),
+
+                    # Fundamentals (N/A)
                     "MarketCap": None,
                     "PERatio": None,
                     "RevenueGrowthPct": None,
                     "ProfitMarginPct": None,
                     "FundamentalOutlook": "N/A",
                     "FundamentalReasons": "",
-                    "Action": "WATCH",
-                    "ActionReason": "Technical analysis only",
+
+                    # Signal Flags
+                    "VWAPReclaim": signal_flags.get('VWAPReclaim', False),
+                    "Breakout": signal_flags.get('Breakout', False),
+                    "Consolidating": signal_flags.get('Consolidating', False),
                 }
         else:
             # Technical only (faster)
             result = {
+                # Core identification
                 "Ticker": ticker,
+                "Close": round(close, 2),
                 "Score": technical_score,
                 "TechnicalScore": technical_score,
                 "FundamentalScore": 0,
                 "Trend": trend,
-                "BBWidth_pct": round(last["bb_width"] * 100, 2),
-                "ATR%": round(last["atr_pct"] * 100, 2),
+                "Signals": signals_str,
+
+                # Action & Timeframe
+                "Action": action_info_enhanced['action'],
+                "TimeframeLabel": action_info_enhanced['timeframe_label'],
+                "ActionReason": action_info_enhanced['action_reason'],
+
+                # Price Levels
+                "EntryPrice": price_levels['entry_price'],
+                "StopLossPrice": price_levels['stop_loss_price'],
+                "TakeProfit1": price_levels['take_profit_1'],
+                "TakeProfit2": price_levels['take_profit_2'],
+
+                # Potential Moves
+                "PotentialUp1h": potential_moves['potential_up_1h_pct'],
+                "PotentialDown1h": potential_moves['potential_down_1h_pct'],
+                "PotentialUp3h": potential_moves['potential_up_3h_pct'],
+                "PotentialDown3h": potential_moves['potential_down_3h_pct'],
+                "PotentialUp1d": potential_moves['potential_up_1d_pct'],
+                "PotentialDown1d": potential_moves['potential_down_1d_pct'],
+                "PotentialUp7d": potential_moves['potential_up_7d_pct'],
+                "PotentialDown7d": potential_moves['potential_down_7d_pct'],
+
+                # Technical Indicators
+                "RSI": round(rsi, 2),
                 "ADX": round(last["adx"], 2),
-                "RSI": round(last["rsi"], 2),
-                "Close": round(last["Close"], 2),
+                "BBWidth_pct": round(last["bb_width"] * 100, 2),
+                "ATR%": round(atr_pct * 100, 2),
+                "ATRValue": round(atr_pct * close, 2),
+
+                # Fundamentals (N/A)
                 "MarketCap": None,
                 "PERatio": None,
                 "RevenueGrowthPct": None,
                 "ProfitMarginPct": None,
                 "FundamentalOutlook": "N/A",
                 "FundamentalReasons": "",
-                "Action": "WATCH",
-                "ActionReason": "Technical analysis only",
+
+                # Signal Flags
+                "VWAPReclaim": signal_flags.get('VWAPReclaim', False),
+                "Breakout": signal_flags.get('Breakout', False),
+                "Consolidating": signal_flags.get('Consolidating', False),
             }
 
-        # Add signal flags
-        result.update(signal_flags)
+        # Add remaining signal flags
+        result['BuyDip'] = signal_flags.get('BuyDip', False)
+        result['VolSpike'] = signal_flags.get('VolSpike', False)
+        result['EMABullish'] = signal_flags.get('EMABullish', False)
+        result['MACDBullish'] = signal_flags.get('MACDBullish', False)
 
         return result
 

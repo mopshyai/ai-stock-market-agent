@@ -26,6 +26,18 @@ except ImportError:
     LIVE_SCANNER_AVAILABLE = False
     print("⚠️ Live scanner not available")
 
+# Import enhanced trading views
+try:
+    from dashboard_trading_view import (
+        display_stock_card_enhanced,
+        display_action_summary,
+        display_disclaimer
+    )
+    TRADING_VIEW_AVAILABLE = True
+except ImportError:
+    TRADING_VIEW_AVAILABLE = False
+    print("⚠️ Trading view not available")
+
 # Page config
 st.set_page_config(
     page_title="AI Stock Market Agent",
@@ -415,7 +427,7 @@ def main():
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Signals", "📈 Charts", "📋 Full Data", "📅 History", "🎯 Performance"])
 
     with tab1:
-        st.subheader("Top Opportunities by Signal Score")
+        st.subheader("🎯 Trading Opportunities")
 
         if df.empty:
             st.warning("⚠️ No stocks match your current filters")
@@ -425,70 +437,62 @@ def main():
             st.markdown("• Disable 'Only Show Signals'")
             st.markdown("• Run a new scan to get fresh data")
         else:
+            # Show action summary
+            if TRADING_VIEW_AVAILABLE and use_live_scanner:
+                display_action_summary(df)
+                st.markdown("---")
+
             if filtered_out > 0:
                 st.caption(f"Showing {len(df)} of {original_count} stocks (filtered out {filtered_out})")
-            # Display each stock as a card
+
+            # Display each stock with enhanced view
             for idx, row in df.iterrows():
-                # Skip stocks with no signals if filter is on
-                signals = display_signal_badges(row)
-                if show_only_signals and signals == '—':
-                    continue
+                # Use enhanced trading view if available
+                if TRADING_VIEW_AVAILABLE and use_live_scanner:
+                    display_stock_card_enhanced(row)
+                else:
+                    # Fallback to old view
+                    signals = display_signal_badges(row)
+                    if show_only_signals and signals == '—':
+                        continue
 
-                with st.container():
-                    col_a, col_b, col_c = st.columns([2, 3, 3])
+                    with st.container():
+                        col_a, col_b, col_c = st.columns([2, 3, 3])
 
-                    with col_a:
-                        st.markdown(f"### {row['Ticker']}")
-                        st.markdown(f"**${row['Close']:.2f}**")
-                        st.markdown(get_score_badge(row['Score']), unsafe_allow_html=True)
+                        with col_a:
+                            st.markdown(f"### {row['Ticker']}")
+                            st.markdown(f"**${row['Close']:.2f}**")
+                            st.markdown(get_score_badge(row['Score']), unsafe_allow_html=True)
 
-                    with col_b:
-                        st.markdown(f"**Signals:** {signals}")
+                        with col_b:
+                            st.markdown(f"**Signals:** {signals}")
 
-                        trend_icon, trend_class = get_trend_icon(row['Trend'])
-                        st.markdown(f'<span class="{trend_class}">Trend: {trend_icon} {row["Trend"]}</span>', unsafe_allow_html=True)
+                            trend_icon, trend_class = get_trend_icon(row['Trend'])
+                            st.markdown(f'<span class="{trend_class}">Trend: {trend_icon} {row["Trend"]}</span>', unsafe_allow_html=True)
 
-                        st.caption(f"RSI: {row['RSI']:.1f} | ADX: {row['ADX']:.1f} | BB Width: {row['BBWidth_pct']:.2f}% | ATR: {row['ATR%']:.2f}%")
+                            st.caption(f"RSI: {row['RSI']:.1f} | ADX: {row['ADX']:.1f} | BB Width: {row['BBWidth_pct']:.2f}% | ATR: {row['ATR%']:.2f}%")
 
-                        action = row.get('Action', 'WATCH')
-                        st.markdown(f"**Action:** {action}")
-                        st.caption(row.get('ActionReason', ''))
+                            action = row.get('Action', 'WATCH')
+                            st.markdown(f"**Action:** {action}")
+                            st.caption(row.get('ActionReason', ''))
 
-                        if 'FundamentalScore' in row:
-                            st.caption(
-                                f"TA Score: {row.get('TechnicalScore', row['Score'])} | "
-                                f"FA Score: {row.get('FundamentalScore', 0)} ({row.get('FundamentalOutlook', '')})"
-                            )
+                        with col_c:
+                            # Combined metrics mini table
+                            metrics = [
+                                ('RSI', f"{row['RSI']:.1f}"),
+                                ('ADX', f"{row['ADX']:.1f}"),
+                                ('BB Width', f"{row['BBWidth_pct']:.2f}%"),
+                                ('ATR%', f"{row['ATR%']:.2f}%"),
+                            ]
 
-                        st.caption(
-                            f"MC: {format_market_cap(row.get('MarketCap'))} | "
-                            f"P/E: {format_optional_number(row.get('PERatio'))} | "
-                            f"Rev: {format_optional_number(row.get('RevenueGrowthPct'), 1, '%')} | "
-                            f"Margin: {format_optional_number(row.get('ProfitMarginPct'), 1, '%')}"
-                        )
+                            indicators = pd.DataFrame(metrics, columns=['Metric', 'Value'])
+                            st.dataframe(indicators, hide_index=True, use_container_width=True)
 
-                        if row.get('FundamentalReasons'):
-                            st.caption(f"Notes: {row.get('FundamentalReasons')}")
+                        st.markdown("---")
 
-                    with col_c:
-                        # Combined metrics mini table
-                        metrics = [
-                            ('RSI', f"{row['RSI']:.1f}"),
-                            ('ADX', f"{row['ADX']:.1f}"),
-                            ('BB Width', f"{row['BBWidth_pct']:.2f}%"),
-                            ('ATR%', f"{row['ATR%']:.2f}%"),
-                            ('Market Cap', format_market_cap(row.get('MarketCap'))),
-                            ('P/E', format_optional_number(row.get('PERatio'))),
-                            ('Rev Growth', format_optional_number(row.get('RevenueGrowthPct'), 1, '%')),
-                            ('Profit Margin', format_optional_number(row.get('ProfitMarginPct'), 1, '%')),
-                            ('FA Score', f"{row.get('FundamentalScore', '—')}"),
-                            ('FA Outlook', row.get('FundamentalOutlook', '')),
-                        ]
-
-                        indicators = pd.DataFrame(metrics, columns=['Metric', 'Value'])
-                        st.dataframe(indicators, hide_index=True, use_container_width=True)
-
-                    st.markdown("---")
+            # Show disclaimer
+            if TRADING_VIEW_AVAILABLE and use_live_scanner:
+                display_disclaimer()
 
     with tab2:
         st.subheader("Stock Charts")
