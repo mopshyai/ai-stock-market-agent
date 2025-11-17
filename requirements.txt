@@ -14,3 +14,7 @@ google-generativeai>=0.3.0
 openai>=1.0.0
 psycopg2-binary>=2.9.0
 redis>=5.0.0
+streamlit>=1.40.0
+streamlit-autorefresh>=1.0.1
+streamlit-lightweight-charts>=0.7.20
+plotly>=5.18.0

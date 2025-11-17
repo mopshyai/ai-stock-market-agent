@@ -15,8 +15,11 @@ tickers:
 data:
   period: "5d"      # Shortened for intraday analysis
   interval: "15m"   # Intraday candles: 15m, 30m, 1h, 4h available
-  provider: "yfinance"        # Options: yfinance (default) or polygon
+  provider: "polygon"        # Options: yfinance (default) or polygon
   polygon_api_key_env: "POLYGON_API_KEY"  # Used when provider=polygon
+
+news_api:
+  key_env: "NEWSAPI_KEY"       # Set this environment variable for NewsAPI integration
 
 indicators:
   bb_window: 20
@@ -108,3 +111,26 @@ trade_monitor:
   # Send daily summary
   send_daily_summary: true
   daily_summary_hour: 16           # 4 PM (24-hour format)
+
+# Top Performers Scanner Settings
+top_performers_scan:
+  # Hourly scans (best movers of the hour)
+  hourly_scans:
+    enabled: true
+    universe: 'all'      # Options: 'popular' (~150 stocks), 'sp500' (~500), 'nasdaq100' (~100), 'all' (~700 stocks)
+    top_n: 20            # Number of top stocks to report (increased to 20)
+    market_hours:        # Times to run scans (24-hour format)
+      - '09:30'          # Market open
+      - '10:30'
+      - '11:30'
+      - '12:30'
+      - '13:30'
+      - '14:30'
+      - '15:30'          # Near market close
+
+  # Morning scans (daily top picks)
+  morning_scans:
+    enabled: true
+    universe: 'all'      # Scan ALL market stocks (S&P 500 + NASDAQ-100)
+    top_n: 20            # Number of top stocks to report (increased to 20)
+    time: '08:00'        # Time to run morning scan (24-hour format)
