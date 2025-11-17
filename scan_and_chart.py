@@ -179,11 +179,30 @@ def main():
     cfg = yaml.safe_load(open("config.yaml","r"))
     results = []
 
-    for t in cfg["tickers"]:
+    # Get tickers to scan
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == '--all':
+        # Scan ALL market stocks (S&P 500 + NASDAQ-100)
+        print("🔥 SCANNING ALL MARKET STOCKS (~700 stocks)")
+        print("⏰ This will take 20-30 minutes...\n")
+        from top_performers_scanner import get_stock_universe
+        tickers_to_scan = get_stock_universe('all')
+    else:
+        # Use configured tickers (default)
+        tickers_to_scan = cfg["tickers"]
+
+    print(f"📊 Total stocks to scan: {len(tickers_to_scan)}\n")
+
+    for idx, t in enumerate(tickers_to_scan, 1):
+        # Progress indicator
+        if len(tickers_to_scan) > 50 and idx % 50 == 0:
+            print(f"✓ Progress: {idx}/{len(tickers_to_scan)} stocks scanned ({idx*100//len(tickers_to_scan)}%)")
+
         try:
             df = get_clean_prices(t, cfg["data"]["period"], cfg["data"]["interval"], cfg.get("data"))
             if df.empty:
-                print(f"[NO DATA] {t}")
+                if len(tickers_to_scan) <= 50:  # Only print for small scans
+                    print(f"[NO DATA] {t}")
                 continue
 
             df = add_indicators(df, cfg)
@@ -228,10 +247,13 @@ def main():
 
             results.append(result_row)
 
-            save_chart(df, t, cfg["output"]["charts_dir"])
+            # Only save charts for small scans (too slow for 700 stocks)
+            if len(tickers_to_scan) <= 50:
+                save_chart(df, t, cfg["output"]["charts_dir"])
 
         except Exception as e:
-            print(f"[ERROR] {t}: {e}")
+            if len(tickers_to_scan) <= 50:  # Only show errors for small scans
+                print(f"[ERROR] {t}: {e}")
 
     df_out = pd.DataFrame(results)
 
@@ -241,7 +263,14 @@ def main():
     df_out.to_csv(cfg["output"]["results_csv"], index=False)
 
     print("\n=== AI STOCK AGENT SCAN RESULTS ===")
-    print(df_out.to_string(index=False))
+    if len(df_out) > 50:
+        # For large scans, show summary + top 50
+        print(f"Total Stocks Scanned: {len(df_out)}")
+        print(f"Showing Top 50 by Score:\n")
+        print(df_out.head(50).to_string(index=False))
+        print(f"\n... ({len(df_out) - 50} more stocks in CSV)")
+    else:
+        print(df_out.to_string(index=False))
 
     # Send Slack alert
     msg = "*AI Stock Agent Scan Complete*\n"
