@@ -48,6 +48,11 @@ An intelligent stock scanner that detects high-probability patterns (consolidati
 - Optional chart images
 - Auto-skips Telegram sending until `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` are configured (no more warning spam)
 
+### 📰 News Intelligence
+- Powered by NewsAPI (80+ professional sources)
+- Cache-backed for low latency
+- Set your key once: `export NEWSAPI_KEY="YOUR_KEY"`
+
 ### 📈 Interactive Dashboard
 - Color-coded signal badges
 - Signal score ranking (🔥 ⭐ 📍)
@@ -132,6 +137,10 @@ data:
   provider: "yfinance"        # or "polygon"
   polygon_api_key_env: "POLYGON_API_KEY"
 
+database:
+  # Leave unset for local sqlite (stock_agent.db)
+  url_env: "DATABASE_URL"      # e.g. postgres://user:pass@host/dbname
+
 signals:
   consolidation:
     bb_width_mean_max: 0.06
@@ -142,7 +151,12 @@ alerts:
   telegram:
     enabled: true
     send_charts: true
+
+news_api:
+  key_env: "NEWSAPI_KEY"   # Run: export NEWSAPI_KEY="your_key"
 ```
+
+> ℹ️ **Database:** Set `DATABASE_URL` in your environment to use managed Postgres (Railway/Supabase). If it's unset, the app falls back to the local `stock_agent.db`.
 
 ---
 

@@ -1,8 +1,7 @@
 
 import yaml
-import sqlite3
 from typing import List, Dict
-from database import DB_PATH
+from database import get_db_connection, format_sql
 from trade_engine import signal_to_trade
 from telegram_bot import notify_trade_lifecycle
 
@@ -17,11 +16,11 @@ def get_latest_scan_signals(min_score: int = 3) -> List[Dict]:
     Get signals from the most recent scan
     Returns list of signal data suitable for trade creation
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     # Get latest scan ID
-    cursor.execute("SELECT scan_id FROM scans ORDER BY scan_date DESC LIMIT 1")
+    cursor.execute(format_sql("SELECT scan_id FROM scans ORDER BY scan_date DESC LIMIT 1"))
     result = cursor.fetchone()
 
     if not result:
@@ -52,7 +51,7 @@ def get_latest_scan_signals(min_score: int = 3) -> List[Dict]:
         ORDER BY score DESC
     """
 
-    cursor.execute(query, (latest_scan_id, min_score))
+    cursor.execute(format_sql(query), (latest_scan_id, min_score))
     rows = cursor.fetchall()
 
     conn.close()
@@ -84,13 +83,13 @@ def check_existing_trades(ticker: str) -> bool:
     Check if there's already an open or pending trade for this ticker
     Returns True if trade exists
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("""
+    cursor.execute(format_sql("""
         SELECT COUNT(*) FROM trades
         WHERE ticker = ? AND status IN ('PENDING', 'OPEN')
-    """, (ticker,))
+    """), (ticker,))
 
     count = cursor.fetchone()[0]
     conn.close()

@@ -237,8 +237,80 @@ def format_optional_number(value, decimals=1, suffix=""):
     return f"{value:.{decimals}f}{suffix}"
 
 
-# Main UI
+# ... (previous imports)
+from auth_service import auth
+
+def login_page():
+    st.markdown("<h1 style='text-align: center;'>🔐 StockGenie Login</h1>", unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["Login", "Sign Up"])
+    
+    with tab1:
+        with st.form("login_form"):
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            submit = st.form_submit_button("Login", use_container_width=True)
+            
+            if submit:
+                result = auth.login(email, password)
+                if result['success']:
+                    st.session_state['authenticated'] = True
+                    st.session_state['user'] = {
+                        'user_id': result['user_id'],
+                        'email': result['email'],
+                        'username': result['username'],
+                        'tier': result['subscription_tier']
+                    }
+                    st.session_state['token'] = result['session_token']
+                    st.success("Login successful!")
+                    st.rerun()
+                else:
+                    st.error(result['error'])
+    
+    with tab2:
+        with st.form("signup_form"):
+            new_email = st.text_input("Email")
+            new_username = st.text_input("Username")
+            new_password = st.text_input("Password", type="password")
+            confirm_password = st.text_input("Confirm Password", type="password")
+            submit = st.form_submit_button("Sign Up", use_container_width=True)
+            
+            if submit:
+                if new_password != confirm_password:
+                    st.error("Passwords do not match")
+                else:
+                    result = auth.create_user(new_email, new_password, new_username)
+                    if result['success']:
+                        st.success("Account created! Please login.")
+                    else:
+                        st.error(result['error'])
+
 def main():
+    # Check authentication
+    if 'authenticated' not in st.session_state:
+        st.session_state['authenticated'] = False
+
+    if not st.session_state['authenticated']:
+        login_page()
+        return
+
+    # Ensure user data exists in session state
+    if 'user' not in st.session_state or st.session_state['user'] is None:
+        st.session_state['authenticated'] = False
+        login_page()
+        return
+
+    # Sidebar User Info & Logout
+    with st.sidebar:
+        st.markdown(f"👤 **{st.session_state['user']['username']}**")
+        st.caption(f"Tier: {st.session_state['user']['tier']}")
+        if st.button("Logout", use_container_width=True):
+            auth.logout(st.session_state['token'])
+            st.session_state['authenticated'] = False
+            st.rerun()
+        st.markdown("---")
+
+    # ... (Rest of the original main function)
     # Header
     st.markdown('<div class="main-header">📊 AI Stock Market Agent</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Near real-time intraday market analysis • Auto-refreshing every 15 minutes</div>', unsafe_allow_html=True)
@@ -252,15 +324,18 @@ def main():
         # Data Source Selection
         st.subheader("📊 Data Source")
 
-        if LIVE_SCANNER_AVAILABLE:
-            use_live_scanner = st.checkbox(
-                "🔴 LIVE Scanner (In-Memory)",
-                value=True,
-                help="Scan markets live without CSV files. Auto-cached for 15 min."
-            )
+        use_csv_debug = st.checkbox(
+            "Use CSV (debug fallback)",
+            value=False,
+            help="Default is live, CSV-free scanning. Enable only for debugging or offline runs."
+        )
+
+        if LIVE_SCANNER_AVAILABLE and not use_csv_debug:
+            use_live_scanner = True
         else:
             use_live_scanner = False
-            st.warning("Live scanner not available")
+            if not LIVE_SCANNER_AVAILABLE:
+                st.warning("Live scanner not available")
 
         if use_live_scanner:
             # Universe selector
@@ -365,7 +440,6 @@ def main():
 
     else:
         # CSV mode (fallback)
-        run_scan_if_stale(max_age_minutes=15)
         df = load_scan_results()
 
         if df is None:
@@ -375,6 +449,10 @@ def main():
 
     # Apply filters
     original_count = len(df)
+
+    # Sort by score before limits
+    if 'Score' in df.columns:
+        df = df.sort_values("Score", ascending=False)
 
     if show_only_signals:
         df = df[
@@ -387,8 +465,8 @@ def main():
     if min_score > 0:
         df = df[df['Score'] >= min_score]
 
-    # Apply max display limit (live mode only)
-    if use_live_scanner and len(df) > max_display:
+    # Apply max display limit
+    if len(df) > max_display:
         df = df.head(max_display)
         st.info(f"📊 Showing top {max_display} of {original_count} stocks (filtered by score)")
 

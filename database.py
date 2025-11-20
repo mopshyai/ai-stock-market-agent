@@ -1,16 +1,21 @@
-
+import os
 import sqlite3
-import pandas as pd
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 
-"""
-Database module for AI Stock Market Agent
-Stores scan results, tracks historical performance, and calculates signal win rates
-"""
+import pandas as pd
 
 DB_PATH = "stock_agent.db"
+DATABASE_URL = os.getenv("DATABASE_URL")
+DB_IS_POSTGRES = bool(DATABASE_URL)
+
+if DB_IS_POSTGRES:
+    import psycopg2
+    from psycopg2 import sql
+else:
+    psycopg2 = None
+
 SIGNAL_COLUMNS = [
     'Consolidating',
     'BuyDip',
@@ -22,67 +27,212 @@ SIGNAL_COLUMNS = [
 ]
 
 
+def get_db_connection():
+    """Return a DB connection to Postgres (if configured) or SQLite."""
+    if DB_IS_POSTGRES:
+        return psycopg2.connect(DATABASE_URL)
+    return sqlite3.connect(DB_PATH)
+
+
+def format_sql(query: str) -> str:
+    """Convert SQLite-style placeholders to Postgres-style when needed."""
+    if DB_IS_POSTGRES:
+        return query.replace("?", "%s")
+    return query
+
+
 def ensure_column(cursor, table: str, column: str, definition: str):
-    """Ensure a column exists on a table."""
-    cursor.execute(f"PRAGMA table_info({table})")
-    columns = {row[1] for row in cursor.fetchall()}
-    if column not in columns:
-        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    """Add a column to a table if it does not exist."""
+    if DB_IS_POSTGRES:
+        cursor.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = %s AND column_name = %s
+        """, (table, column))
+        if not cursor.fetchone():
+            cursor.execute(
+                sql.SQL("ALTER TABLE {} ADD COLUMN {} {}").format(
+                    sql.Identifier(table),
+                    sql.Identifier(column),
+                    sql.SQL(definition)
+                )
+            )
+    else:
+        cursor.execute(f"PRAGMA table_info({table})")
+        columns = {row[1] for row in cursor.fetchall()}
+        if column not in columns:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def init_database():
-    """Initialize database schema"""
-    conn = sqlite3.connect(DB_PATH)
+    """Initialize or migrate database schema."""
+    conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Scans table - stores metadata about each scan
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS scans (
-            scan_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            scan_date TIMESTAMP NOT NULL,
-            total_stocks INTEGER NOT NULL,
-            signals_found INTEGER NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+    if DB_IS_POSTGRES:
+        scans_table = """
+            CREATE TABLE IF NOT EXISTS scans (
+                scan_id SERIAL PRIMARY KEY,
+                scan_date TIMESTAMP NOT NULL,
+                total_stocks INTEGER NOT NULL,
+                signals_found INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        signals_table = """
+            CREATE TABLE IF NOT EXISTS signals (
+                signal_id SERIAL PRIMARY KEY,
+                scan_id INTEGER NOT NULL,
+                ticker TEXT NOT NULL,
+                signal_date DATE NOT NULL,
+                score INTEGER NOT NULL,
+                technical_score INTEGER,
+                consolidating BOOLEAN,
+                buy_dip BOOLEAN,
+                breakout BOOLEAN,
+                vol_spike BOOLEAN,
+                ema_bullish BOOLEAN,
+                macd_bullish BOOLEAN,
+                vwap_reclaim BOOLEAN,
+                trend TEXT,
+                price_at_signal REAL NOT NULL,
+                rsi REAL,
+                adx REAL,
+                bb_width_pct REAL,
+                atr_pct REAL,
+                fundamental_score INTEGER,
+                market_cap REAL,
+                pe_ratio REAL,
+                revenue_growth_pct REAL,
+                profit_margin_pct REAL,
+                action TEXT,
+                action_reason TEXT,
+                fundamental_outlook TEXT,
+                fundamental_reasons TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (scan_id) REFERENCES scans(scan_id)
+            )
+        """
+        price_tracking_table = """
+            CREATE TABLE IF NOT EXISTS price_tracking (
+                tracking_id SERIAL PRIMARY KEY,
+                signal_id INTEGER NOT NULL,
+                ticker TEXT NOT NULL,
+                days_after INTEGER NOT NULL,
+                price REAL NOT NULL,
+                price_change_pct REAL NOT NULL,
+                tracked_date DATE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (signal_id) REFERENCES signals(signal_id)
+            )
+        """
+        trades_table = """
+            CREATE TABLE IF NOT EXISTS trades (
+                trade_id SERIAL PRIMARY KEY,
+                signal_id INTEGER,
+                ticker TEXT NOT NULL,
+                side TEXT DEFAULT 'BUY',
+                status TEXT NOT NULL,
+                entry_price REAL NOT NULL,
+                stop_loss REAL NOT NULL,
+                tp1 REAL NOT NULL,
+                tp2 REAL NOT NULL,
+                current_price REAL,
+                entry_time TIMESTAMP,
+                exit_time TIMESTAMP,
+                exit_reason TEXT,
+                risk_amount REAL,
+                r_multiple REAL,
+                pnl REAL,
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (signal_id) REFERENCES signals(signal_id)
+            )
+        """
+    else:
+        scans_table = """
+            CREATE TABLE IF NOT EXISTS scans (
+                scan_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scan_date TIMESTAMP NOT NULL,
+                total_stocks INTEGER NOT NULL,
+                signals_found INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        signals_table = """
+            CREATE TABLE IF NOT EXISTS signals (
+                signal_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scan_id INTEGER NOT NULL,
+                ticker TEXT NOT NULL,
+                signal_date DATE NOT NULL,
+                score INTEGER NOT NULL,
+                technical_score INTEGER,
+                consolidating BOOLEAN,
+                buy_dip BOOLEAN,
+                breakout BOOLEAN,
+                vol_spike BOOLEAN,
+                ema_bullish BOOLEAN,
+                macd_bullish BOOLEAN,
+                vwap_reclaim BOOLEAN,
+                trend TEXT,
+                price_at_signal REAL NOT NULL,
+                rsi REAL,
+                adx REAL,
+                bb_width_pct REAL,
+                atr_pct REAL,
+                fundamental_score INTEGER,
+                market_cap REAL,
+                pe_ratio REAL,
+                revenue_growth_pct REAL,
+                profit_margin_pct REAL,
+                action TEXT,
+                action_reason TEXT,
+                fundamental_outlook TEXT,
+                fundamental_reasons TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (scan_id) REFERENCES scans(scan_id)
+            )
+        """
+        price_tracking_table = """
+            CREATE TABLE IF NOT EXISTS price_tracking (
+                tracking_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                signal_id INTEGER NOT NULL,
+                ticker TEXT NOT NULL,
+                days_after INTEGER NOT NULL,
+                price REAL NOT NULL,
+                price_change_pct REAL NOT NULL,
+                tracked_date DATE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (signal_id) REFERENCES signals(signal_id)
+            )
+        """
+        trades_table = """
+            CREATE TABLE IF NOT EXISTS trades (
+                trade_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                signal_id INTEGER,
+                ticker TEXT NOT NULL,
+                side TEXT DEFAULT 'BUY',
+                status TEXT NOT NULL,
+                entry_price REAL NOT NULL,
+                stop_loss REAL NOT NULL,
+                tp1 REAL NOT NULL,
+                tp2 REAL NOT NULL,
+                current_price REAL,
+                entry_time TIMESTAMP,
+                exit_time TIMESTAMP,
+                exit_reason TEXT,
+                risk_amount REAL,
+                r_multiple REAL,
+                pnl REAL,
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (signal_id) REFERENCES signals(signal_id)
+            )
+        """
 
-    # Signals table - stores individual stock signals
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS signals (
-            signal_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            scan_id INTEGER NOT NULL,
-            ticker TEXT NOT NULL,
-            signal_date DATE NOT NULL,
-            score INTEGER NOT NULL,
-             technical_score INTEGER,
-            consolidating BOOLEAN,
-            buy_dip BOOLEAN,
-            breakout BOOLEAN,
-            vol_spike BOOLEAN,
-            ema_bullish BOOLEAN,
-            macd_bullish BOOLEAN,
-            vwap_reclaim BOOLEAN,
-            trend TEXT,
-            price_at_signal REAL NOT NULL,
-            rsi REAL,
-            adx REAL,
-            bb_width_pct REAL,
-            atr_pct REAL,
-            fundamental_score INTEGER,
-            market_cap REAL,
-            pe_ratio REAL,
-            revenue_growth_pct REAL,
-            profit_margin_pct REAL,
-            action TEXT,
-            action_reason TEXT,
-            fundamental_outlook TEXT,
-            fundamental_reasons TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (scan_id) REFERENCES scans(scan_id)
-        )
-    """)
-
-    # Backfill columns for existing databases
+    cursor.execute(scans_table)
+    cursor.execute(signals_table)
     ensure_column(cursor, "signals", "technical_score", "INTEGER")
     ensure_column(cursor, "signals", "fundamental_score", "INTEGER")
     ensure_column(cursor, "signals", "market_cap", "REAL")
@@ -97,48 +247,9 @@ def init_database():
     ensure_column(cursor, "signals", "macd_bullish", "BOOLEAN")
     ensure_column(cursor, "signals", "vwap_reclaim", "BOOLEAN")
 
-    # Price tracking - stores price movements after signals
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS price_tracking (
-            tracking_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            signal_id INTEGER NOT NULL,
-            ticker TEXT NOT NULL,
-            days_after INTEGER NOT NULL,
-            price REAL NOT NULL,
-            price_change_pct REAL NOT NULL,
-            tracked_date DATE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (signal_id) REFERENCES signals(signal_id)
-        )
-    """)
+    cursor.execute(price_tracking_table)
+    cursor.execute(trades_table)
 
-    # Trades table - stores actual trade execution and lifecycle
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS trades (
-            trade_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            signal_id INTEGER,
-            ticker TEXT NOT NULL,
-            side TEXT DEFAULT 'BUY',
-            status TEXT NOT NULL,
-            entry_price REAL NOT NULL,
-            stop_loss REAL NOT NULL,
-            tp1 REAL NOT NULL,
-            tp2 REAL NOT NULL,
-            current_price REAL,
-            entry_time TIMESTAMP,
-            exit_time TIMESTAMP,
-            exit_reason TEXT,
-            risk_amount REAL,
-            r_multiple REAL,
-            pnl REAL,
-            notes TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (signal_id) REFERENCES signals(signal_id)
-        )
-    """)
-
-    # Create indexes for faster queries
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_ticker ON signals(ticker)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_signals_date ON signals(signal_date)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracking_signal ON price_tracking(signal_id)")
@@ -147,47 +258,47 @@ def init_database():
 
     conn.commit()
     conn.close()
-    print(f"✅ Database initialized at {DB_PATH}")
+    print(f"✅ Database initialized at {DATABASE_URL if DB_IS_POSTGRES else DB_PATH}")
 
 
 def store_scan_results(results: List[Dict]) -> int:
-    """
-    Store scan results in database
-    Returns scan_id
-    """
+    """Persist scan results and return the scan_id."""
     if not results:
         return -1
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Count signals
     signals_count = sum(
         1 for r in results
         if any(r.get(col) for col in SIGNAL_COLUMNS)
     )
 
-    # Insert scan record
     scan_date = datetime.now()
-    cursor.execute("""
+    insert_scan_sql = """
         INSERT INTO scans (scan_date, total_stocks, signals_found)
         VALUES (?, ?, ?)
-    """, (scan_date, len(results), signals_count))
+    """
+    if DB_IS_POSTGRES:
+        cursor.execute(format_sql(insert_scan_sql) + " RETURNING scan_id", (scan_date, len(results), signals_count))
+        scan_id = cursor.fetchone()[0]
+    else:
+        cursor.execute(insert_scan_sql, (scan_date, len(results), signals_count))
+        scan_id = cursor.lastrowid
 
-    scan_id = cursor.lastrowid
+    insert_signal_sql = """
+        INSERT INTO signals (
+            scan_id, ticker, signal_date, score, technical_score,
+            consolidating, buy_dip, breakout, vol_spike, ema_bullish, macd_bullish, vwap_reclaim, trend,
+            price_at_signal, rsi, adx, bb_width_pct, atr_pct,
+            fundamental_score, market_cap, pe_ratio, revenue_growth_pct,
+            profit_margin_pct, action, action_reason, fundamental_outlook,
+            fundamental_reasons
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
 
-    # Insert individual signals
     for result in results:
-        cursor.execute("""
-            INSERT INTO signals (
-                scan_id, ticker, signal_date, score, technical_score,
-                consolidating, buy_dip, breakout, vol_spike, ema_bullish, macd_bullish, vwap_reclaim, trend,
-                price_at_signal, rsi, adx, bb_width_pct, atr_pct,
-                fundamental_score, market_cap, pe_ratio, revenue_growth_pct,
-                profit_margin_pct, action, action_reason, fundamental_outlook,
-                fundamental_reasons
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
+        cursor.execute(format_sql(insert_signal_sql), (
             scan_id,
             result.get('Ticker'),
             scan_date.date(),
@@ -224,9 +335,20 @@ def store_scan_results(results: List[Dict]) -> int:
     return scan_id
 
 
+def _read_dataframe(query: str, params: Tuple = None) -> pd.DataFrame:
+    conn = get_db_connection()
+    try:
+        formatted = format_sql(query)
+        if not params:
+            df = pd.read_sql_query(formatted, conn)
+        else:
+            df = pd.read_sql_query(formatted, conn, params=params)
+    finally:
+        conn.close()
+    return df
+
+
 def get_recent_scans(limit: int = 10) -> pd.DataFrame:
-    """Get recent scan summary"""
-    conn = sqlite3.connect(DB_PATH)
     query = """
         SELECT
             scan_id,
@@ -238,14 +360,10 @@ def get_recent_scans(limit: int = 10) -> pd.DataFrame:
         ORDER BY scan_date DESC
         LIMIT ?
     """
-    df = pd.read_sql_query(query, conn, params=(limit,))
-    conn.close()
-    return df
+    return _read_dataframe(query, (limit,))
 
 
 def get_signals_by_date_range(start_date: str, end_date: str) -> pd.DataFrame:
-    """Get all signals within a date range"""
-    conn = sqlite3.connect(DB_PATH)
     query = """
         SELECT
             s.signal_id,
@@ -264,16 +382,11 @@ def get_signals_by_date_range(start_date: str, end_date: str) -> pd.DataFrame:
         WHERE s.signal_date BETWEEN ? AND ?
         ORDER BY s.signal_date DESC, s.score DESC
     """
-    df = pd.read_sql_query(query, conn, params=(start_date, end_date))
-    conn.close()
-    return df
+    return _read_dataframe(query, (start_date, end_date))
 
 
 def get_top_signals(days: int = 30, min_score: int = 3) -> pd.DataFrame:
-    """Get top-scoring signals from recent days"""
-    conn = sqlite3.connect(DB_PATH)
     cutoff_date = (datetime.now() - timedelta(days=days)).date()
-
     query = """
         SELECT
             ticker,
@@ -292,23 +405,18 @@ def get_top_signals(days: int = 30, min_score: int = 3) -> pd.DataFrame:
         ORDER BY score DESC, signal_date DESC
         LIMIT 50
     """
-    df = pd.read_sql_query(query, conn, params=(cutoff_date, min_score))
-    conn.close()
-    return df
+    return _read_dataframe(query, (cutoff_date, min_score))
 
 
 def get_signal_stats() -> Dict:
-    """Get overall signal statistics"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
-    stats = {}
-
-    # Total signals
     cursor.execute("SELECT COUNT(*) FROM signals")
-    stats['total_signals'] = cursor.fetchone()[0]
+    total_signals = cursor.fetchone()[0]
 
-    # Signals by type
+    stats = {'total_signals': total_signals}
+
     cursor.execute("SELECT COUNT(*) FROM signals WHERE consolidating = 1")
     stats['consolidation_count'] = cursor.fetchone()[0]
 
@@ -321,12 +429,10 @@ def get_signal_stats() -> Dict:
     cursor.execute("SELECT COUNT(*) FROM signals WHERE vol_spike = 1")
     stats['vol_spike_count'] = cursor.fetchone()[0]
 
-    # Average score
     cursor.execute("SELECT AVG(score) FROM signals")
     avg_score = cursor.fetchone()[0]
     stats['avg_score'] = round(avg_score, 2) if avg_score else 0
 
-    # Top tickers
     cursor.execute("""
         SELECT ticker, COUNT(*) as signal_count
         FROM signals
@@ -341,20 +447,15 @@ def get_signal_stats() -> Dict:
 
 
 def update_price_tracking(ticker: str, current_price: float) -> None:
-    """
-    Update price tracking for all active signals of a ticker
-    Tracks price movement 1, 3, 7, 14, 30 days after signal
-    """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Get active signals for this ticker (last 30 days)
     cutoff_date = (datetime.now() - timedelta(days=30)).date()
-    cursor.execute("""
+    cursor.execute(format_sql("""
         SELECT signal_id, signal_date, price_at_signal
         FROM signals
         WHERE ticker = ? AND signal_date >= ?
-    """, (ticker, cutoff_date))
+    """), (ticker, cutoff_date))
 
     signals = cursor.fetchall()
 
@@ -365,40 +466,30 @@ def update_price_tracking(ticker: str, current_price: float) -> None:
         if days_after > 0 and price_at_signal > 0:
             price_change_pct = ((current_price - price_at_signal) / price_at_signal) * 100
 
-            # Check if we already have tracking for this day
-            cursor.execute("""
+            cursor.execute(format_sql("""
                 SELECT tracking_id FROM price_tracking
                 WHERE signal_id = ? AND days_after = ?
-            """, (signal_id, days_after))
+            """), (signal_id, days_after))
 
             existing = cursor.fetchone()
 
             if existing:
-                # Update existing record
-                cursor.execute("""
+                cursor.execute(format_sql("""
                     UPDATE price_tracking
                     SET price = ?, price_change_pct = ?, tracked_date = ?
                     WHERE tracking_id = ?
-                """, (current_price, price_change_pct, datetime.now().date(), existing[0]))
+                """), (current_price, price_change_pct, datetime.now().date(), existing[0]))
             else:
-                # Insert new tracking record
-                cursor.execute("""
+                cursor.execute(format_sql("""
                     INSERT INTO price_tracking (signal_id, ticker, days_after, price, price_change_pct, tracked_date)
                     VALUES (?, ?, ?, ?, ?, ?)
-                """, (signal_id, ticker, days_after, current_price, price_change_pct, datetime.now().date()))
+                """), (signal_id, ticker, days_after, current_price, price_change_pct, datetime.now().date()))
 
     conn.commit()
     conn.close()
 
 
 def get_signal_performance(signal_type: str = 'all', days: int = 30) -> pd.DataFrame:
-    """
-    Calculate win rates for signals
-    signal_type: 'consolidating', 'buy_dip', 'breakout', 'vol_spike', or 'all'
-    """
-    conn = sqlite3.connect(DB_PATH)
-
-    # Build WHERE clause based on signal type
     if signal_type == 'consolidating':
         signal_filter = "AND s.consolidating = 1"
     elif signal_type == 'buy_dip':
@@ -427,17 +518,14 @@ def get_signal_performance(signal_type: str = 'all', days: int = 30) -> pd.DataF
         GROUP BY s.signal_id
         ORDER BY s.signal_date DESC
     """
+    if DB_IS_POSTGRES:
+        query = query.replace("date('now', '-{days} days')".format(days=days),
+                              f"(CURRENT_DATE - INTERVAL '{days} days')")
 
-    df = pd.read_sql_query(query, conn)
-    conn.close()
-    return df
+    return _read_dataframe(query, ())
 
 
 def calculate_win_rates(signal_type: str = 'all', days: int = 30) -> Dict:
-    """
-    Calculate win rate statistics
-    Win = price increased after signal
-    """
     df = get_signal_performance(signal_type, days)
 
     if df.empty:
@@ -471,20 +559,23 @@ def calculate_win_rates(signal_type: str = 'all', days: int = 30) -> Dict:
 def create_trade(signal_id: int, ticker: str, entry_price: float,
                  stop_loss: float, tp1: float, tp2: float,
                  risk_amount: float = None, notes: str = None) -> int:
-    """
-    Create a new pending trade from a signal
-    Returns trade_id
-    """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("""
+    insert_sql = """
         INSERT INTO trades (
             signal_id, ticker, status, entry_price, stop_loss, tp1, tp2, risk_amount, notes
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (signal_id, ticker, 'PENDING', entry_price, stop_loss, tp1, tp2, risk_amount, notes))
+    """
+    params = (signal_id, ticker, 'PENDING', entry_price, stop_loss, tp1, tp2, risk_amount, notes)
 
-    trade_id = cursor.lastrowid
+    if DB_IS_POSTGRES:
+        cursor.execute(format_sql(insert_sql) + " RETURNING trade_id", params)
+        trade_id = cursor.fetchone()[0]
+    else:
+        cursor.execute(insert_sql, params)
+        trade_id = cursor.lastrowid
+
     conn.commit()
     conn.close()
 
@@ -493,8 +584,6 @@ def create_trade(signal_id: int, ticker: str, entry_price: float,
 
 
 def get_pending_trades() -> pd.DataFrame:
-    """Get all pending trades"""
-    conn = sqlite3.connect(DB_PATH)
     query = """
         SELECT
             trade_id, ticker, entry_price, stop_loss, tp1, tp2,
@@ -503,14 +592,10 @@ def get_pending_trades() -> pd.DataFrame:
         WHERE status = 'PENDING'
         ORDER BY created_at DESC
     """
-    df = pd.read_sql_query(query, conn)
-    conn.close()
-    return df
+    return _read_dataframe(query, ())
 
 
 def get_open_trades() -> pd.DataFrame:
-    """Get all open trades"""
-    conn = sqlite3.connect(DB_PATH)
     query = """
         SELECT
             trade_id, ticker, entry_price, stop_loss, tp1, tp2,
@@ -519,20 +604,17 @@ def get_open_trades() -> pd.DataFrame:
         WHERE status = 'OPEN'
         ORDER BY entry_time DESC
     """
-    df = pd.read_sql_query(query, conn)
-    conn.close()
-    return df
+    return _read_dataframe(query, ())
 
 
 def update_trade_status(trade_id: int, status: str, current_price: float = None) -> None:
-    """Update trade status and current price"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     update_fields = ["status = ?", "updated_at = CURRENT_TIMESTAMP"]
     params = [status]
 
-    if current_price:
+    if current_price is not None:
         update_fields.append("current_price = ?")
         params.append(current_price)
 
@@ -540,28 +622,22 @@ def update_trade_status(trade_id: int, status: str, current_price: float = None)
         update_fields.append("entry_time = CURRENT_TIMESTAMP")
 
     params.append(trade_id)
-
     query = f"UPDATE trades SET {', '.join(update_fields)} WHERE trade_id = ?"
-    cursor.execute(query, params)
 
+    cursor.execute(format_sql(query), tuple(params))
     conn.commit()
     conn.close()
 
 
 def close_trade(trade_id: int, exit_price: float, exit_reason: str) -> Dict:
-    """
-    Close a trade and calculate P&L
-    Returns trade details
-    """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Get trade details
-    cursor.execute("""
+    cursor.execute(format_sql("""
         SELECT ticker, entry_price, stop_loss, tp1, tp2, risk_amount
         FROM trades
         WHERE trade_id = ?
-    """, (trade_id,))
+    """), (trade_id,))
 
     row = cursor.fetchone()
     if not row:
@@ -570,7 +646,6 @@ def close_trade(trade_id: int, exit_price: float, exit_reason: str) -> Dict:
 
     ticker, entry_price, stop_loss, tp1, tp2, risk_amount = row
 
-    # Calculate R-multiple
     risk_per_share = entry_price - stop_loss
     profit_per_share = exit_price - entry_price
 
@@ -579,15 +654,13 @@ def close_trade(trade_id: int, exit_price: float, exit_reason: str) -> Dict:
     else:
         r_multiple = 0
 
-    # Calculate P&L
     if risk_amount and risk_per_share > 0:
         shares = risk_amount / risk_per_share
         pnl = shares * profit_per_share
     else:
         pnl = 0
 
-    # Update trade
-    cursor.execute("""
+    cursor.execute(format_sql("""
         UPDATE trades
         SET status = 'CLOSED',
             current_price = ?,
@@ -597,7 +670,7 @@ def close_trade(trade_id: int, exit_price: float, exit_reason: str) -> Dict:
             pnl = ?,
             updated_at = CURRENT_TIMESTAMP
         WHERE trade_id = ?
-    """, (exit_price, exit_reason, r_multiple, pnl, trade_id))
+    """), (exit_price, exit_reason, r_multiple, pnl, trade_id))
 
     conn.commit()
     conn.close()
@@ -617,21 +690,18 @@ def close_trade(trade_id: int, exit_price: float, exit_reason: str) -> Dict:
 
 
 def get_trade_summary(days: int = 30) -> Dict:
-    """Get trade performance summary"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cutoff_date = (datetime.now() - timedelta(days=days)).date()
 
-    # Total trades
-    cursor.execute("""
+    cursor.execute(format_sql("""
         SELECT COUNT(*) FROM trades
         WHERE DATE(created_at) >= ?
-    """, (cutoff_date,))
+    """), (cutoff_date,))
     total = cursor.fetchone()[0]
 
-    # Closed trades stats
-    cursor.execute("""
+    cursor.execute(format_sql("""
         SELECT
             COUNT(*) as closed_count,
             SUM(CASE WHEN r_multiple > 0 THEN 1 ELSE 0 END) as wins,
@@ -639,16 +709,13 @@ def get_trade_summary(days: int = 30) -> Dict:
             SUM(pnl) as total_pnl
         FROM trades
         WHERE status = 'CLOSED' AND DATE(exit_time) >= ?
-    """, (cutoff_date,))
-
+    """), (cutoff_date,))
     row = cursor.fetchone()
     closed_count, wins, avg_r, total_pnl = row
 
-    # Open trades count
     cursor.execute("SELECT COUNT(*) FROM trades WHERE status = 'OPEN'")
     open_count = cursor.fetchone()[0]
 
-    # Pending trades count
     cursor.execute("SELECT COUNT(*) FROM trades WHERE status = 'PENDING'")
     pending_count = cursor.fetchone()[0]
 
@@ -669,8 +736,8 @@ def get_trade_summary(days: int = 30) -> Dict:
 
 
 if __name__ == "__main__":
-    # Initialize database when run directly
     print("Initializing AI Stock Agent database...")
     init_database()
     print("\n✅ Database ready!")
-    print(f"📁 Location: {Path(DB_PATH).absolute()}")
+    location = DATABASE_URL if DB_IS_POSTGRES else Path(DB_PATH).absolute()
+    print(f"📁 Location: {location}")

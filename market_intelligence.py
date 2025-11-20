@@ -9,6 +9,7 @@ import requests
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import re
+import logging
 
 # Import cache manager
 try:
@@ -17,6 +18,15 @@ try:
 except ImportError:
     CACHE_AVAILABLE = False
     print("⚠️  Cache manager not available")
+
+# NewsAPI client (optional)
+try:
+    from news_api_client import NewsAPIClient
+    NEWSAPI_AVAILABLE = True
+except ImportError:
+    NEWSAPI_AVAILABLE = False
+    NewsAPIClient = None
+    logging.getLogger(__name__).warning("⚠️  news_api_client not available. Falling back to yfinance news.")
 
 class StockDataFetcher:
     """Fetch real-time stock data using yfinance"""
@@ -144,6 +154,8 @@ class StockDataFetcher:
 class NewsFetcher:
     """Fetch latest news for stocks"""
 
+    newsapi_client = NewsAPIClient() if NEWSAPI_AVAILABLE else None
+
     @staticmethod
     def get_stock_news(symbol: str, limit: int = 5) -> List[Dict]:
         """Get latest news for a specific stock using yfinance (with caching)"""
@@ -156,7 +168,15 @@ class NewsFetcher:
                 print(f"✅ Cache HIT: {symbol} news")
                 return cached[:limit]  # Return requested limit
 
-        # Cache miss - fetch from yfinance
+        # Use NewsAPI first if available
+        if NewsFetcher.newsapi_client and NewsFetcher.newsapi_client.enabled:
+            newsapi_articles = NewsFetcher.newsapi_client.get_stock_news(symbol, limit)
+            if newsapi_articles:
+                if CACHE_AVAILABLE:
+                    cache_news(symbol, newsapi_articles, ttl_seconds=900)
+                return newsapi_articles
+
+        # Cache miss or NewsAPI disabled - fetch from yfinance
         try:
             ticker = yf.Ticker(symbol)
             news = ticker.news
@@ -221,8 +241,14 @@ class NewsFetcher:
     @staticmethod
     def get_market_news(limit: int = 10) -> List[Dict]:
         """Get general market news"""
+        # Prefer NewsAPI market headlines
+        if NewsFetcher.newsapi_client and NewsFetcher.newsapi_client.enabled:
+            market_news = NewsFetcher.newsapi_client.get_market_news(limit)
+            if market_news:
+                return market_news
+
+        # Fallback to SPY ticker news
         try:
-            # Use SPY as proxy for market news
             return NewsFetcher.get_stock_news('SPY', limit)
         except Exception as e:
             print(f"Error fetching market news: {e}")

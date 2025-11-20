@@ -31,7 +31,11 @@
       "Bash(git pull:*)",
       "Bash(git stash:*)",
       "Bash(open https://railway.app/dashboard)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "WebSearch",
+      "Bash(pip3 list:*)",
+      "Bash(xargs kill:*)",
+      "Bash(mv:*)"
     ],
     "deny": [],
     "ask": []

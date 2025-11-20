@@ -14,7 +14,6 @@ import sys
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-import sqlite3
 
 # Telegram Bot imports
 try:
@@ -67,6 +66,8 @@ except ImportError as e:
     MarketDataEngine = None
     MarketIntelligence = None
     MARKET_INTELLIGENCE_AVAILABLE = False
+
+from database import get_db_connection, format_sql
 
 
 class TradingAssistantBot:
@@ -194,18 +195,18 @@ Examples:
     async def trades_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /trades command - show current trades"""
         try:
-            conn = sqlite3.connect('stock_agent.db')
+            conn = get_db_connection()
             cursor = conn.cursor()
 
             # Get open trades
-            cursor.execute("""
+            cursor.execute(format_sql("""
                 SELECT ticker, entry_price, current_price, stop_loss, tp1, tp2,
                        entry_time, status, notes
                 FROM trades
                 WHERE status IN ('PENDING', 'OPEN')
                 ORDER BY entry_time DESC
                 LIMIT 10
-            """)
+            """))
 
             trades = cursor.fetchall()
             conn.close()
@@ -258,12 +259,12 @@ Examples:
     async def summary_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /summary command - trading performance"""
         try:
-            conn = sqlite3.connect('stock_agent.db')
+            conn = get_db_connection()
             cursor = conn.cursor()
 
             # Get today's closed trades
             today = datetime.now().date()
-            cursor.execute("""
+            cursor.execute(format_sql("""
                 SELECT COUNT(*),
                        SUM(CASE WHEN r_multiple > 0 THEN 1 ELSE 0 END) as wins,
                        AVG(r_multiple) as avg_r,
@@ -271,13 +272,13 @@ Examples:
                 FROM trades
                 WHERE status = 'CLOSED'
                   AND DATE(exit_time) = ?
-            """, (today,))
+            """), (today,))
 
             today_stats = cursor.fetchone()
 
             # Get week's stats
             week_ago = today - timedelta(days=7)
-            cursor.execute("""
+            cursor.execute(format_sql("""
                 SELECT COUNT(*),
                        SUM(CASE WHEN r_multiple > 0 THEN 1 ELSE 0 END) as wins,
                        AVG(r_multiple) as avg_r,
@@ -285,17 +286,17 @@ Examples:
                 FROM trades
                 WHERE status = 'CLOSED'
                   AND DATE(exit_time) >= ?
-            """, (week_ago,))
+            """), (week_ago,))
 
             week_stats = cursor.fetchone()
 
             # Get open/pending count
-            cursor.execute("""
+            cursor.execute(format_sql("""
                 SELECT
                     SUM(CASE WHEN status = 'OPEN' THEN 1 ELSE 0 END) as open_count,
                     SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending_count
                 FROM trades
-            """)
+            """))
 
             current_counts = cursor.fetchone()
             conn.close()
