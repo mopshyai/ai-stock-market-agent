@@ -87,6 +87,20 @@ def run_interactive_bot():
         traceback.print_exc()
 
 
+def run_scheduled_alerts():
+    """Run scheduled alerts (hourly tips, 3-hour predictions, weekly predictions)"""
+    try:
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting Scheduled Alerts...")
+
+        from scheduled_alerts import run_scheduler
+        run_scheduler()  # This blocks
+
+    except Exception as e:
+        print(f"❌ Error in scheduled alerts: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def main():
     """Main entry point - runs all services in parallel"""
     print("\n" + "="*60)
@@ -96,6 +110,7 @@ def main():
     print("  1. Tweet Scheduler (6 tweets/day)")
     print("  2. Trade Monitor (live trade alerts)")
     print("  3. Interactive Telegram Bot (chat with AI)")
+    print("  4. Scheduled Alerts (hourly tips, 3h & weekly predictions)")
     print("\n" + "="*60 + "\n")
 
     # Check environment variables
@@ -114,6 +129,7 @@ def main():
     tweet_thread = threading.Thread(target=run_tweet_scheduler, daemon=True, name="TweetScheduler")
     trade_thread = threading.Thread(target=run_trade_monitor, daemon=True, name="TradeMonitor")
     bot_thread = threading.Thread(target=run_interactive_bot, daemon=True, name="InteractiveBot")
+    alerts_thread = threading.Thread(target=run_scheduled_alerts, daemon=True, name="ScheduledAlerts")
 
     # Start all threads (staggered to avoid startup conflicts)
     tweet_thread.start()
@@ -121,6 +137,8 @@ def main():
     trade_thread.start()
     time.sleep(2)
     bot_thread.start()
+    time.sleep(2)
+    alerts_thread.start()
 
     print("\n✅ All systems running")
     print("Press Ctrl+C to stop (but on Railway, this runs forever)\n")
@@ -146,8 +164,13 @@ def main():
                 bot_thread = threading.Thread(target=run_interactive_bot, daemon=True)
                 bot_thread.start()
 
+            if not alerts_thread.is_alive():
+                print("⚠️  Scheduled alerts thread died, restarting...")
+                alerts_thread = threading.Thread(target=run_scheduled_alerts, daemon=True)
+                alerts_thread.start()
+
     except KeyboardInterrupt:
-        print("\n🛑 Shutting down...")
+        print("\n Shutting down...")
 
 
 if __name__ == "__main__":
