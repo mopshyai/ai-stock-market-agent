@@ -10,8 +10,9 @@ import sys
 from pathlib import Path
 
 # Add parent directory to path
-sys.path.append(str(Path(__file__).parent))
+sys.path.append(str(Path(__file__).parent.parent))
 
+from database import init_database
 from analytics_engine import (
     get_win_rate_by_signal_type,
     get_pnl_over_time,
@@ -23,6 +24,12 @@ from analytics_engine import (
     create_signal_score_distribution,
     get_best_performing_tickers
 )
+
+# Initialize database on first load
+try:
+    init_database()
+except Exception as e:
+    st.error(f"Database initialization error: {e}")
 
 # Page config
 st.set_page_config(
@@ -44,7 +51,19 @@ days_range = st.sidebar.selectbox(
 )
 
 # Get metrics
-metrics = get_signal_performance_metrics(days_range)
+try:
+    metrics = get_signal_performance_metrics(days_range)
+except Exception as e:
+    st.warning("⚠️ No analytics data available yet. Start scanning stocks to populate the database.")
+    metrics = {
+        'total_signals': 0,
+        'win_rate': 0,
+        'winning_trades': 0,
+        'closed_trades': 0,
+        'total_pnl': 0,
+        'avg_pnl': 0,
+        'avg_r_multiple': 0
+    }
 
 # Top metrics row
 st.markdown("### 📈 Performance Overview")
@@ -84,78 +103,93 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.markdown("### 🎯 Win Rate by Signal Type")
-    win_rate_df = get_win_rate_by_signal_type(days_range)
-    
-    if len(win_rate_df) > 0:
-        fig = create_win_rate_chart(win_rate_df)
-        st.plotly_chart(fig, use_container_width=True)
-    else:
+    try:
+        win_rate_df = get_win_rate_by_signal_type(days_range)
+
+        if len(win_rate_df) > 0:
+            fig = create_win_rate_chart(win_rate_df)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No signal data available for this period")
+    except Exception:
         st.info("No signal data available for this period")
 
 with col2:
     st.markdown("### 📊 Signal Score Distribution")
-    fig_score = create_signal_score_distribution()
-    st.plotly_chart(fig_score, use_container_width=True)
+    try:
+        fig_score = create_signal_score_distribution()
+        st.plotly_chart(fig_score, use_container_width=True)
+    except Exception:
+        st.info("No score data available yet")
 
 st.divider()
 
 # P/L Chart
 st.markdown("### 💰 Profit & Loss Over Time")
-pnl_df = get_pnl_over_time(days_range)
+try:
+    pnl_df = get_pnl_over_time(days_range)
 
-if len(pnl_df) > 0:
-    fig_pnl = create_pnl_chart(pnl_df)
-    st.plotly_chart(fig_pnl, use_container_width=True)
-else:
+    if len(pnl_df) > 0:
+        fig_pnl = create_pnl_chart(pnl_df)
+        st.plotly_chart(fig_pnl, use_container_width=True)
+    else:
+        st.info("No closed trades yet to display P/L")
+except Exception:
     st.info("No closed trades yet to display P/L")
 
 st.divider()
 
 # R-Multiple Distribution
 st.markdown("### 📐 R-Multiple Distribution")
-r_mult_df = get_r_multiple_distribution()
+try:
+    r_mult_df = get_r_multiple_distribution()
 
-if len(r_mult_df) > 0:
-    fig_r = create_r_multiple_chart(r_mult_df)
-    st.plotly_chart(fig_r, use_container_width=True)
-    
-    # R-Multiple table
-    with st.expander("📋 Latest Trades by R-Multiple"):
-        display_df = r_mult_df[['ticker', 'r_multiple', 'pnl', 'exit_reason', 'closed_at']].head(20)
-        display_df['pnl'] = display_df['pnl'].apply(lambda x: f"${x:.2f}")
-        display_df['r_multiple'] = display_df['r_multiple'].apply(lambda x: f"{x:.2f}R")
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
-else:
+    if len(r_mult_df) > 0:
+        fig_r = create_r_multiple_chart(r_mult_df)
+        st.plotly_chart(fig_r, use_container_width=True)
+
+        # R-Multiple table
+        with st.expander("📋 Latest Trades by R-Multiple"):
+            display_df = r_mult_df[['ticker', 'r_multiple', 'pnl', 'exit_reason', 'closed_at']].head(20)
+            display_df['pnl'] = display_df['pnl'].apply(lambda x: f"${x:.2f}")
+            display_df['r_multiple'] = display_df['r_multiple'].apply(lambda x: f"{x:.2f}R")
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No closed trades yet to analyze R-multiples")
+except Exception:
     st.info("No closed trades yet to analyze R-multiples")
 
 st.divider()
 
 # Best performing tickers
 st.markdown("### 🏆 Best Performing Tickers")
-best_tickers = get_best_performing_tickers(days_range, 10)
+try:
+    best_tickers = get_best_performing_tickers(days_range, 10)
 
-if len(best_tickers) > 0:
-    # Format for display
-    display_tickers = best_tickers.copy()
-    display_tickers['total_pnl'] = display_tickers['total_pnl'].apply(lambda x: f"${x:,.2f}")
-    display_tickers['win_rate'] = display_tickers['win_rate'].apply(lambda x: f"{x}%")
-    display_tickers['avg_r_multiple'] = display_tickers['avg_r_multiple'].apply(lambda x: f"{x}R")
-    
-    st.dataframe(
-        display_tickers,
-        column_config={
-            "ticker": "Ticker",
-            "total_trades": "Total Trades",
-            "wins": "Wins",
-            "total_pnl": "Total P/L",
-            "avg_r_multiple": "Avg R-Multiple",
-            "win_rate": "Win Rate"
-        },
-        hide_index=True,
-        use_container_width=True
-    )
-else:
-    st.info("No ticker data available (minimum 2 trades required)")
+    if len(best_tickers) > 0:
+        # Format for display
+        display_tickers = best_tickers.copy()
+        display_tickers['total_pnl'] = display_tickers['total_pnl'].apply(lambda x: f"${x:,.2f}")
+        display_tickers['win_rate'] = display_tickers['win_rate'].apply(lambda x: f"{x}%")
+        display_tickers['avg_r_multiple'] = display_tickers['avg_r_multiple'].apply(lambda x: f"{x}R")
+
+        st.dataframe(
+            display_tickers,
+            column_config={
+                "ticker": "Ticker",
+                "total_trades": "Total Trades",
+                "wins": "Wins",
+                "total_pnl": "Total P/L",
+                "avg_r_multiple": "Avg R-Multiple",
+                "win_rate": "Win Rate"
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+    else:
+        st.info("No ticker data available (minimum 2 trades required)")
+except Exception:
+    st.info("No ticker data available yet")
 
 # Footer
 st.markdown("---")
