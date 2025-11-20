@@ -18,3 +18,4 @@ streamlit>=1.40.0
 streamlit-autorefresh>=1.0.1
 streamlit-lightweight-charts>=0.7.20
 plotly>=5.18.0
+supabase>=2.0.0
