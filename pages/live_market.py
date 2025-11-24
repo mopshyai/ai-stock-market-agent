@@ -102,18 +102,41 @@ def calculate_targets(price, atr_pct):
     return round(stop_loss, 2), round(tp1, 2), round(tp2, 2)
 
 
+# Fallback stock list if Wikipedia fails
+FALLBACK_STOCKS = [
+    'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK-B', 'JPM', 'V',
+    'JNJ', 'UNH', 'HD', 'PG', 'MA', 'DIS', 'PYPL', 'ADBE', 'NFLX', 'CRM',
+    'AMD', 'INTC', 'QCOM', 'COST', 'PEP', 'KO', 'MRK', 'ABT', 'TMO', 'CSCO',
+    'AVGO', 'TXN', 'NKE', 'MCD', 'WMT', 'CVX', 'XOM', 'LLY', 'DHR', 'BMY',
+    'ORCL', 'ACN', 'UPS', 'NEE', 'RTX', 'HON', 'LOW', 'SPGI', 'BA', 'CAT',
+    'GS', 'MS', 'C', 'WFC', 'AXP', 'BLK', 'SCHW', 'USB', 'PNC', 'TFC',
+    'PLTR', 'SNOW', 'NET', 'DDOG', 'ZS', 'CRWD', 'OKTA', 'MDB', 'TEAM', 'NOW',
+    'SQ', 'COIN', 'HOOD', 'SOFI', 'AFRM', 'UBER', 'LYFT', 'ABNB', 'DASH', 'RBLX',
+    'F', 'GM', 'RIVN', 'LCID', 'NIO', 'XPEV', 'LI', 'BABA', 'JD', 'PDD',
+    'ROKU', 'ZM', 'DOCU', 'TWLO', 'U', 'SHOP', 'MELI', 'SE', 'SPOT', 'SQ'
+]
+
+
 @st.cache_data(ttl=60)  # Cache for 60 seconds
 def fetch_all_stocks():
     """Fetch data for ALL US stocks with predictions and signals"""
 
     # Load config
     try:
-        cfg = yaml.safe_load(open("config.yaml", "r"))
+        config_path = Path(__file__).parent.parent / "config.yaml"
+        cfg = yaml.safe_load(open(config_path, "r"))
     except:
         cfg = {}
 
-    # Get all tickers
-    tickers = get_stock_universe('all')
+    # Get all tickers with fallback
+    try:
+        tickers = get_stock_universe('all')
+        if not tickers or len(tickers) < 50:
+            st.warning("Using fallback stock list")
+            tickers = FALLBACK_STOCKS
+    except Exception as e:
+        st.warning(f"Using fallback stock list: {e}")
+        tickers = FALLBACK_STOCKS
 
     results = []
     progress_bar = st.progress(0)
@@ -212,6 +235,10 @@ def fetch_all_stocks():
 
     progress_bar.empty()
     status_text.empty()
+
+    if not results:
+        st.error("No stocks loaded. Check your internet connection.")
+        return pd.DataFrame()
 
     return pd.DataFrame(results)
 
